@@ -83,15 +83,21 @@ Device: iPhone 17, `iPhone18,3`, iOS build 24A435, 7672 MB RAM, free Apple ID, d
 - Task map is `[0x102344000, 0x7180000000)` (449 GB), with 16 KiB pages.
 - **Jetsam limit is about 3375 MB** (footprint plus `limit_bytes_remaining`). This is the binding constraint, since GoW3 has a 5 GB PS4 direct pool.
 - Named memory entries alias correctly, and a fixed remap of a released view works, so this can replace memfd.
-- `mach_memory_entry_ownership(entry, self, NO_FOOTPRINT)` returns **KERN_NO_ACCESS (8)**, and the memory still counts. The TASK_NULL owner variant is tested next.
-- **Fixed reservations at 32 GiB, 64 GiB and 256 GiB all fail with KERN_NO_SPACE**, so most of the 449 GB map is not free.
-  The next self-test walks the map (largest holes, regions over 1 GB) and tries ANYWHERE reservations of 4 to 64 GB.
-- Next build also tests file-backed MAP_SHARED pool memory (a sandbox file mapped twice): whether its dirty pages stay out of phys_footprint.
-  This may be Madeira's "swap-like" approach, and it fits the runtime's memfd design directly.
-- JIT and FEXCore are not tested yet: StikDebug was not set up.
+- `mach_memory_entry_ownership(..., NO_FOOTPRINT)` fails (KERN_NO_ACCESS with the self owner on the first build, KERN_INVALID_ARGUMENT (4) with self and TASK_NULL on later ones) and the memory still counts. Dead end.
+- **File-backed MAP_SHARED memory stays out of phys_footprint**: 512 MB of dirty pages in a mapped sandbox file added 0 MB, and two views of the file alias.
+  This is the way past the jetsam limit for the direct pool (replaces memfd; pages may be written back to flash under pressure).
+- **Free address space is only about 6-7 GB.** iOS itself reserves `0x1000000000+384G` (tag 31, prot 0) and `0x2e6000000+51G` (tag 32), plus 1 GB tag-32 regions.
+  Same on a direct install, so it is not LiveContainer. ANYWHERE reservations: 4 GB ok (at `0x7000000000`, inside a 6 GB hole), 8 GB and larger fail.
+  Fixed reservations at 32 GiB, 64 GiB and 256 GiB fail (KERN_NO_SPACE). The PS4 memory windows must be relocated and kept small.
+- **JIT and FEXCore work (2026-10-20, StikDebug, native SideStore install).** Pool 256 MiB at `0x112400000`, RW alias via vm_remap.
+  native JIT returns 42. FEX tests: plain return, arguments and a host call all give 42, and the 200M-iteration loop is correct
+  (71 ms translated vs 112 ms for the unoptimized native C loop, so the JIT output is good). FEX init uses about 16 MiB of the pool.
+  The first failure was ours: the pool put a PROT_NONE guard on the last RW page of every buffer, which was all of the 16 KiB dispatcher buffer.
+- FEX's temporary compile buffer guard (`PooledAllocatorVirtualWithGuard`) protects one 4 KiB page, which 16 KiB host pages cannot do exactly.
+  Not hit yet; patch it to a host page before running real game code.
 
 ## Open questions to settle first, in order
 1. Does `jit_task_map_range` report 63 GiB or 512 GiB on the phone, under the signing we can actually get?
 2. What resident set does GoW3 need? Measure it on Android or PC (`runtime_memory` live_bytes and RSS) with the 01.02 dump.
-3. Does the dual-mapped FEXCore JIT run on the iPhone 17 with iOS 27? MaxPS4 reports a synthetic test passing on iOS 27.2.
+3. ~~Does the dual-mapped FEXCore JIT run on the iPhone 17 with iOS 27?~~ Yes (see Device results).
 4. Is MoltenVK on iOS enough for shadPS4's video core? Run the smoke test, then the title screen.

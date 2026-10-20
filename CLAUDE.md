@@ -48,11 +48,10 @@ Expo (React Native) app shell: launcher, dump import via Files app, settings, JI
 1. Audit: list the Linux/Android-specific code in gow3 `cpu/` and `src/` (mmap/mprotect flags, signals/ucontext, futex, /proc, page-size assumptions, the Xvfb/SDL display path).
    Map each item to the iOS fix that already exists in fex-ios, MaxPS4 or Madeira. DONE: see docs/AUDIT.md (including its open questions).
 2. GitHub Actions: build a minimal iOS app plus standalone FEXCore and produce a sideloadable IPA.
-   WRITTEN, NOT YET BUILT. `.github/workflows/ios.yml`, `native/scripts/build-ios.sh`, and the Expo app with `modules/gow3-core`.
+   DONE. `.github/workflows/ios.yml`, `native/scripts/build-ios.sh`, and the Expo app with `modules/gow3-core`.
    Nothing iOS-specific can be compiled on this Linux machine, so expect a few CI fix-up rounds.
 3. Get FEXCore running a small x86-64 test function on the iPhone with JIT enabled.
-   WRITTEN: `native/selftest`. On device: Enable JIT, then Run self-test. Also measures the address map, the jetsam budget,
-   the no-footprint ledger trick and named-entry aliasing.
+   DONE (2026-10-20): `native/selftest` passes on the iPhone 17 with StikDebug JIT. Results and the memory/address-space findings are in docs/AUDIT.md.
 
 ## Native core layout
 - `native/jit/jit_pool.*`: pool from `brk #0xf00d`, x16=1 (debugger `_M size,rx`), RW alias by `vm_remap`, first-fit carve.
