@@ -323,6 +323,37 @@ void TestReserveAnywhere(Json& j) {
     j.raw("reserve_anywhere", out + "}");
 }
 
+// iOS fences off [64 GiB, 448 GiB) with a VM_MEMORY_GUARD region (tag 31, no access) for apps
+// without the extended-VA entitlement. If a piece of it can be released and remapped, the PS4
+// user range fits where the runtime expects it. Tries 1 GiB at the start of the region.
+void TestGuard(Json& j) {
+    mach_port_t task = mach_task_self();
+    vm_address_t at = 0x1000000000ull;
+    vm_size_t size = 0;
+    vm_region_basic_info_data_64_t info;
+    mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+    mach_port_t object = MACH_PORT_NULL;
+    kern_return_t kr = vm_region_64(task, &at, &size, VM_REGION_BASIC_INFO_64, (vm_region_info_t)&info, &count, &object);
+    if (kr != KERN_SUCCESS || at != 0x1000000000ull) {
+        j.str("guard", "no region at 64 GiB");
+        return;
+    }
+    j.hex("guard_size", size);
+    j.num("guard_max_prot", info.max_protection);
+    j.num("guard_protect_rw_kr", vm_protect(task, at, 16384, FALSE, VM_PROT_READ | VM_PROT_WRITE));
+    kr = vm_deallocate(task, at, 1ull << 30);
+    j.num("guard_release_kr", kr);
+    if (kr != KERN_SUCCESS) return;
+    vm_address_t fixed = at;
+    kr = vm_allocate(task, &fixed, 1ull << 30, VM_FLAGS_FIXED);
+    j.num("guard_fixed_alloc_kr", kr);
+    if (kr == KERN_SUCCESS) {
+        *reinterpret_cast<volatile uint64_t*>(fixed) = 42; // the pages are really usable
+        j.boolean("guard_fixed_write_ok", *reinterpret_cast<volatile uint64_t*>(fixed) == 42);
+        vm_deallocate(task, fixed, 1ull << 30);
+    }
+}
+
 // The address window the gow3 runtime wants (runtime_memory.c): low host map from 32 GiB, PS4
 // user range from 64 GiB. Reserve without touching, then release.
 void TestWindow(Json& j, const char* key, uint64_t address, uint64_t size) {
@@ -477,6 +508,8 @@ size_t gow3_selftest(const char* log_path, char* out, size_t capacity) {
     Log("selftest: address map");
     TestVaMap(j);
     TestReserveAnywhere(j);
+    Log("selftest: guard region");
+    TestGuard(j);
     Log("selftest: address window");
     TestWindow(j, "window_low_32g_1g_kr", 0x0800000000ull, 1ull << 30);
     TestWindow(j, "window_user_64g_8g_kr", 0x1000000000ull, 8ull << 30);
