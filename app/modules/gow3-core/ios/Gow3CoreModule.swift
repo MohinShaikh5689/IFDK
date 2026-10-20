@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The Expo bridge to the native core (native/include/gow3core.h, linked from lib/libgow3core_all.a).
 import ExpoModulesCore
+import GameController
 import UIKit
 
 @_silgen_name("gow3_device_report")
@@ -109,6 +110,33 @@ public class Gow3CoreModule: Module {
     AsyncFunction("runSelfTest") { () -> String in
       let path = Gow3CoreModule.logURL.path
       return path.withCString { log in readJson { gow3_selftest(log, $0, $1) } }
+    }
+
+    // Connected controllers as iOS reports them (the future runtime_pad backend reads the same objects).
+    Function("controllers") { () -> [[String: Any]] in
+      GCController.controllers().map { c in
+        let pad = c.extendedGamepad
+        let kind: String
+        if pad is GCDualSenseGamepad {
+          kind = "DualSense"
+        } else if pad is GCDualShockGamepad {
+          kind = "DualShock 4"
+        } else if pad is GCXboxGamepad {
+          kind = "Xbox"
+        } else if pad != nil {
+          kind = "extended"
+        } else {
+          kind = "other"
+        }
+        return [
+          "name": c.vendorName ?? "?",
+          "category": c.productCategory,
+          "kind": kind,
+          "haptics": c.haptics != nil,
+          "light": c.light != nil,
+          "battery": c.battery.map { Double($0.batteryLevel) } ?? -1,
+        ]
+      }
     }
 
     Function("readLog") { () -> String in

@@ -12,6 +12,8 @@ declare class Gow3CoreModule extends NativeModule<{}> {
   enableJit(poolMb: number): Promise<number>;
   /** JSON results of the memory, JIT and FEXCore self-tests. */
   runSelfTest(): Promise<string>;
+  /** Connected game controllers (GameController framework). */
+  controllers(): Array<{ name: string; category: string; kind: string; haptics: boolean; light: boolean; battery: number }>;
   /** Progress lines of every self-test run so far (survives a crash). */
   readLog(): string;
   clearLog(): void;

@@ -6,6 +6,9 @@ import Gow3Core from './modules/gow3-core/src/Gow3CoreModule';
 
 const POOL_MB = 256;
 
+// controllers() is new in the native build after 4ed13b6; older installed IPAs lack it.
+const listControllers = () => (typeof Gow3Core.controllers === 'function' ? Gow3Core.controllers() : []);
+
 function pretty(json: string): string {
   try {
     return JSON.stringify(JSON.parse(json), null, 2);
@@ -28,10 +31,12 @@ export default function App() {
   const [report, setReport] = useState(() => pretty(Gow3Core.deviceReport()));
   const [result, setResult] = useState('');
   const [log, setLog] = useState(() => Gow3Core.readLog());
+  const [pads, setPads] = useState(listControllers);
 
   const refresh = useCallback(() => {
     setReport(pretty(Gow3Core.deviceReport()));
     setLog(Gow3Core.readLog());
+    setPads(listControllers());
   }, []);
 
   const enableJit = useCallback(async () => {
@@ -86,6 +91,10 @@ export default function App() {
             disabled={busy}
           />
         </View>
+        <Text style={styles.heading}>Controllers</Text>
+        <Text style={styles.mono} selectable>
+          {pads.length ? pads.map((p) => `${p.kind}: ${p.name} (${p.category})${p.haptics ? ', haptics' : ''}${p.light ? ', light' : ''}`).join('\n') : 'none connected (pair in Settings → Bluetooth, then Refresh)'}
+        </Text>
         <Text style={styles.heading}>Device</Text>
         <Text style={styles.mono} selectable>{report}</Text>
         {result ? (

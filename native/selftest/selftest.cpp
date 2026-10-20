@@ -9,7 +9,9 @@
 #include <cinttypes>
 #include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <cerrno>
 #include <string>
 #include <fcntl.h>
 #include <mach/mach.h>
@@ -128,8 +130,8 @@ void TestAliasing(Json& j) {
 }
 
 // Touching `mb` MiB of a named entry, with and without VM_LEDGER_FLAG_NO_FOOTPRINT: does it
-// count toward the jetsam footprint?
-void TestFootprint(Json& j, const char* key, size_t mb, bool no_footprint) {
+// count toward the jetsam footprint? Owner: 0 none (plain), 1 this task, 2 TASK_NULL.
+void TestFootprint(Json& j, const char* key, size_t mb, int owner) {
     mach_port_t task = mach_task_self();
     memory_object_size_t size = mb * MiB;
     mach_port_t entry = MACH_PORT_NULL;
@@ -139,8 +141,8 @@ void TestFootprint(Json& j, const char* key, size_t mb, bool no_footprint) {
         j.num((k + "_entry_kr").c_str(), kr);
         return;
     }
-    if (no_footprint) {
-        kern_return_t ko = mach_memory_entry_ownership(entry, task, VM_LEDGER_TAG_DEFAULT, VM_LEDGER_FLAG_NO_FOOTPRINT);
+    if (owner) {
+        kern_return_t ko = mach_memory_entry_ownership(entry, owner == 1 ? task : TASK_NULL, VM_LEDGER_TAG_DEFAULT, VM_LEDGER_FLAG_NO_FOOTPRINT);
         j.num((k + "_ownership_kr").c_str(), ko);
     }
     vm_address_t a = 0;
@@ -155,6 +157,113 @@ void TestFootprint(Json& j, const char* key, size_t mb, bool no_footprint) {
         j.num((k + "_map_kr").c_str(), kr);
     }
     mach_port_deallocate(task, entry);
+}
+
+// The memfd replacement that may stay out of the jetsam budget: a file in the sandbox mapped
+// MAP_SHARED (twice, as the runtime's pool views are). Dirty file-backed pages can be written
+// back to the file, so iOS may not charge them to phys_footprint like anonymous memory.
+void TestFileBacked(Json& j, size_t mb) {
+    const char* tmp = std::getenv("TMPDIR");
+    std::string path = std::string(tmp ? tmp : "/tmp") + "/gow3-pool-test.bin";
+    const size_t size = mb * MiB;
+    int fd = open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0) {
+        j.num("file_open_errno", errno);
+        return;
+    }
+    unlink(path.c_str());
+    if (ftruncate(fd, (off_t)size) != 0) {
+        j.num("file_truncate_errno", errno);
+        close(fd);
+        return;
+    }
+    void* a = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    void* b = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (a == MAP_FAILED || b == MAP_FAILED) {
+        j.num("file_mmap_errno", errno);
+    } else {
+        const uint64_t before = Footprint();
+        for (size_t off = 0; off < size; off += 16384) reinterpret_cast<volatile char*>(a)[off] = 1;
+        const uint64_t after = Footprint();
+        j.num("file_512_footprint_delta_mb", (long long)((int64_t)(after - before) / (int64_t)MiB));
+        reinterpret_cast<volatile uint64_t*>(a)[777] = 0x6f77335f696f73ull;
+        j.boolean("file_alias_ok", reinterpret_cast<volatile uint64_t*>(b)[777] == 0x6f77335f696f73ull);
+        j.unum("file_available_after_mb", os_proc_available_memory() / MiB);
+    }
+    if (a != MAP_FAILED) munmap(a, size);
+    if (b != MAP_FAILED) munmap(b, size);
+    close(fd);
+}
+
+// Where the address space is actually free: walk the regions and report the largest holes.
+void TestVaMap(Json& j) {
+    task_vm_info_data_t vmi;
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&vmi, &count) != KERN_SUCCESS) return;
+    struct Hole { uint64_t start, size; };
+    Hole top[6] = {};
+    uint64_t cursor = vmi.min_address, total_free = 0;
+    unsigned regions = 0;
+    std::string big_regions = "[";
+    for (;;) {
+        vm_address_t address = cursor;
+        vm_size_t size = 0;
+        natural_t depth = 0;
+        vm_region_submap_info_data_64_t info;
+        mach_msg_type_number_t info_count = VM_REGION_SUBMAP_INFO_COUNT_64;
+        const bool found = vm_region_recurse_64(mach_task_self(), &address, &size, &depth, (vm_region_recurse_info_t)&info, &info_count) == KERN_SUCCESS;
+        const uint64_t next = found ? address : vmi.max_address;
+        if (next > cursor) {
+            const Hole h {cursor, next - cursor};
+            total_free += h.size;
+            Hole* smallest = &top[0];
+            for (auto& t : top) {
+                if (t.size < smallest->size) smallest = &t;
+            }
+            if (h.size > smallest->size) *smallest = h;
+        }
+        if (!found) break;
+        ++regions;
+        if (size >= (1ull << 30) && big_regions.size() < 900) {
+            char b[96];
+            std::snprintf(b, sizeof(b), "%s\"0x%llx+%lluG tag%u prot%d\"", big_regions.size() > 1 ? "," : "",
+                          (unsigned long long)address, (unsigned long long)(size >> 30), info.user_tag, info.protection);
+            big_regions += b;
+        }
+        cursor = address + size;
+        if (cursor >= vmi.max_address) break;
+    }
+    j.unum("va_regions", regions);
+    j.unum("va_free_gb", total_free >> 30);
+    std::string holes = "[";
+    for (const auto& t : top) {
+        if (!t.size) continue;
+        char b[64];
+        std::snprintf(b, sizeof(b), "%s\"0x%llx+%lluM\"", holes.size() > 1 ? "," : "", (unsigned long long)t.start, (unsigned long long)(t.size >> 20));
+        holes += b;
+    }
+    j.raw("va_largest_holes", holes + "]");
+    j.raw("va_regions_over_1g", big_regions + "]");
+}
+
+// How much can be reserved (not touched) anywhere, the way the PS4 pool and user range would be.
+void TestReserveAnywhere(Json& j) {
+    std::string out = "{";
+    for (uint64_t gb : {4ull, 8ull, 16ull, 32ull, 64ull}) {
+        vm_address_t a = 0;
+        kern_return_t kr = vm_allocate(mach_task_self(), &a, gb << 30, VM_FLAGS_ANYWHERE);
+        char b[64];
+        std::snprintf(b, sizeof(b), "%s\"%lluG\":\"%s\"", out.size() > 1 ? "," : "", (unsigned long long)gb,
+                      kr == KERN_SUCCESS ? "ok" : (kr == KERN_NO_SPACE ? "no_space" : "fail"));
+        out += b;
+        if (kr == KERN_SUCCESS) {
+            char at[48];
+            std::snprintf(at, sizeof(at), "reserve_%llug_at", (unsigned long long)gb);
+            j.hex(at, a);
+            vm_deallocate(mach_task_self(), a, gb << 30);
+        }
+    }
+    j.raw("reserve_anywhere", out + "}");
 }
 
 // The address window the gow3 runtime wants (runtime_memory.c): low host map from 32 GiB, PS4
@@ -300,8 +409,14 @@ size_t gow3_selftest(const char* log_path, char* out, size_t capacity) {
     Log("selftest: memory aliasing");
     TestAliasing(j);
     Log("selftest: footprint ledger");
-    TestFootprint(j, "plain_256", 256, false);
-    TestFootprint(j, "nofootprint_256", 256, true);
+    TestFootprint(j, "plain_256", 256, 0);
+    TestFootprint(j, "nofootprint_256", 256, 1);
+    TestFootprint(j, "nofootprint_null_256", 256, 2);
+    Log("selftest: file-backed pool");
+    TestFileBacked(j, 512);
+    Log("selftest: address map");
+    TestVaMap(j);
+    TestReserveAnywhere(j);
     Log("selftest: address window");
     TestWindow(j, "window_low_32g_1g_kr", 0x0800000000ull, 1ull << 30);
     TestWindow(j, "window_user_64g_8g_kr", 0x1000000000ull, 8ull << 30);

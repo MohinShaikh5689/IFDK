@@ -78,6 +78,18 @@ app/Madeira/JITAllocator.h, Madeira.entitlements, madeira-jit.js).
   Madeira ships the first three. Whether a free account keeps the memory ones after re-signing needs checking.
 - **Licenses:** gow3 code is GPL-2.0+, Madeira FEX changes are GPL-3.0+ (with the Madeira converter exception), StikJIT is MPL-2.0, and MoltenVK is Apache-2.0. Release the combined project as GPL-3.0 with all sources published.
 
+## Device results (self-test, 2026-10-20)
+Device: iPhone 17, `iPhone18,3`, iOS build 24A435, 7672 MB RAM, free Apple ID, direct SideStore install.
+- Task map is `[0x102344000, 0x7180000000)` (449 GB), with 16 KiB pages.
+- **Jetsam limit is about 3375 MB** (footprint plus `limit_bytes_remaining`). This is the binding constraint, since GoW3 has a 5 GB PS4 direct pool.
+- Named memory entries alias correctly, and a fixed remap of a released view works, so this can replace memfd.
+- `mach_memory_entry_ownership(entry, self, NO_FOOTPRINT)` returns **KERN_NO_ACCESS (8)**, and the memory still counts. The TASK_NULL owner variant is tested next.
+- **Fixed reservations at 32 GiB, 64 GiB and 256 GiB all fail with KERN_NO_SPACE**, so most of the 449 GB map is not free.
+  The next self-test walks the map (largest holes, regions over 1 GB) and tries ANYWHERE reservations of 4 to 64 GB.
+- Next build also tests file-backed MAP_SHARED pool memory (a sandbox file mapped twice): whether its dirty pages stay out of phys_footprint.
+  This may be Madeira's "swap-like" approach, and it fits the runtime's memfd design directly.
+- JIT and FEXCore are not tested yet: StikDebug was not set up.
+
 ## Open questions to settle first, in order
 1. Does `jit_task_map_range` report 63 GiB or 512 GiB on the phone, under the signing we can actually get?
 2. What resident set does GoW3 need? Measure it on Android or PC (`runtime_memory` live_bytes and RSS) with the 01.02 dump.
