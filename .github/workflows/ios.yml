@@ -1,0 +1,88 @@
+name: iOS IPA
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ipa:
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the latest stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: FEX and the submodules its iOS build needs
+        run: |
+          git submodule update --init --depth 1 native/third_party/FEX
+          cd native/third_party/FEX
+          # Only what configure uses with tests, thunks and the profiler off; the test-binary
+          # repositories are large and not needed.
+          git submodule update --init --depth 1 External/fmt External/xxhash External/range-v3 External/unordered_dense External/vixl
+
+      - name: Tools
+        run: |
+          brew install ninja
+          xcodebuild -version
+          cmake --version
+
+      - name: Native core (FEXCore + gow3core for iOS arm64)
+        run: native/scripts/build-ios.sh build/native-ios
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Expo prebuild
+        working-directory: app
+        run: |
+          npm ci
+          npx expo prebuild -p ios --clean
+
+      - name: Build the app (unsigned)
+        working-directory: app/ios
+        run: |
+          set -o pipefail
+          xcodebuild -workspace gow3ios.xcworkspace -scheme gow3ios -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath ../../build/xcode \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tee ../../build/xcodebuild.log | grep -E 'error:|warning: .*gow3|BUILD (SUCCEEDED|FAILED)' || true
+          test -d ../../build/xcode/Build/Products/Release-iphoneos/gow3ios.app
+
+      - name: Package the IPA (ad-hoc signed with the app's entitlements; SideStore re-signs it)
+        run: |
+          APP=build/xcode/Build/Products/Release-iphoneos/gow3ios.app
+          find "$APP" \( -name '*.framework' -o -name '*.dylib' \) -prune -print0 | xargs -0 -n1 codesign -f -s -
+          codesign -f -s - --entitlements app/ios/gow3ios/gow3ios.entitlements "$APP"
+          codesign -d --entitlements - "$APP"
+          mkdir -p build/ipa/Payload
+          cp -R "$APP" build/ipa/Payload/
+          (cd build/ipa && zip -qry ../gow3-ios.ipa Payload)
+          ls -la build/gow3-ios.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gow3-ios-ipa
+          path: build/gow3-ios.ipa
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-logs
+          path: |
+            build/xcodebuild.log
+            build/native-ios/CMakeFiles/CMakeOutput.log
+            build/native-ios/CMakeFiles/CMakeError.log
+            build/native-ios/libs.txt
+          if-no-files-found: ignore

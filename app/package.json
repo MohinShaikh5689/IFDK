@@ -1,0 +1,23 @@
+{
+  "name": "gow3-ios",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "expo": "~58.0.16",
+    "expo-build-properties": "~58.0.11",
+    "expo-status-bar": "~58.0.3",
+    "react": "19.3.0",
+    "react-native": "0.88.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.3.0",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo run:ios",
+    "prebuild:ios": "expo prebuild -p ios --clean",
+    "typecheck": "tsc --noEmit"
+  },
+  "private": true
+}

@@ -1,0 +1,4 @@
+[submodule "native/third_party/FEX"]
+	path = native/third_party/FEX
+	url = https://github.com/willfaust/FEX.git
+	branch = ios-port-2607
