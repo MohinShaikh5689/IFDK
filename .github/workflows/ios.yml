@@ -102,6 +102,7 @@ jobs:
         working-directory: app/ios
         run: |
           set -o pipefail
+          mkdir -p ../../build # only the native step creates it, and a cache hit skips that step
           xcodebuild -workspace gow3ios.xcworkspace -scheme gow3ios -configuration "$CONFIGURATION" \
             -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath ../../build/xcode \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
