@@ -23,7 +23,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Select the latest stable Xcode
         uses: maxim-lobanov/setup-xcode@v1
@@ -47,7 +47,7 @@ jobs:
       - name: Native core (FEXCore + gow3core for iOS arm64)
         run: native/scripts/build-ios.sh build/native-ios
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -80,12 +80,12 @@ jobs:
           (cd build/ipa && zip -qry "../gow3-ios-$CONFIGURATION.ipa" Payload)
           ls -la build/gow3-ios-*.ipa
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: gow3-ios-${{ env.CONFIGURATION }}-ipa
           path: build/gow3-ios-${{ env.CONFIGURATION }}.ipa
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: build-logs
