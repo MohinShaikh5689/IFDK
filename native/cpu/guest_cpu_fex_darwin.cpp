@@ -141,7 +141,7 @@ GuestThread* Current() {
     }
     FEXCore::Allocator::InitializeThread();
     auto* t = new GuestThread {};
-    t->thread = ctx->CreateThread(nullptr);
+    t->thread = ctx->CreateThread(0, 0); // RIP and RSP are set by each guest_cpu_call
     auto* frame = t->thread->CurrentFrame;
     void* alloc = mmap(nullptr, CallRetAlloc, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (alloc == MAP_FAILED) {
@@ -207,9 +207,18 @@ void CallHost(CPUState& s, void* fn) {
     std::memcpy(Xmm(s, 1), &result.v[1], sizeof(result.v[1]));
 }
 
+// OS_GENERIC: the JIT spills every guest register to the frame before calling HandleSyscall and
+// fills them afterwards, leaving RAX alone, so the handler edits the state directly. On entry
+// s.rip is the address of the `syscall` instruction. Outside _WIN32 this FEX does not end the
+// block at `syscall` (X86Tables.h DEFAULT_SYSCALL_FLAGS), so execution continues after it whatever
+// s.rip says: right for host stubs (`ret` follows), but a guest_cpu_hook that moves RIP needs
+// FLAGS_BLOCK_END there first (see docs/AUDIT.md).
 class Handler final : public FEXCore::HLE::SyscallHandler {
 public:
-    void HandleSyscall(FEXCore::Core::CpuStateFrame* frame) override {
+    Handler() {
+        OSABI = FEXCore::HLE::SyscallOSABI::OS_GENERIC;
+    }
+    uint64_t HandleSyscall(FEXCore::Core::CpuStateFrame* frame, FEXCore::HLE::SyscallArguments*) override {
         auto& s = frame->State;
         const uint64_t rip = s.rip;
         const uint64_t offset = rip - reinterpret_cast<uintptr_t>(stubs);
@@ -220,7 +229,7 @@ public:
             }
             CallHost(s, fn);
             s.rip = rip + 2;
-            return;
+            return 0;
         }
         for (size_t i = 0, n = hook_count.load(std::memory_order_acquire); i < n; ++i) {
             if (hooks[i].address != rip) {
@@ -232,7 +241,7 @@ public:
             hooks[i].hook(&regs);
             std::memcpy(s.gregs, regs.gpr, sizeof(regs.gpr));
             s.rip = regs.rip;
-            return;
+            return 0;
         }
         Fatal("the game executed a syscall instruction (rip, rax)", rip, s.gregs[FEXCore::X86State::REG_RAX]);
     }

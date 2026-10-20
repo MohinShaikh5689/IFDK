@@ -32,6 +32,7 @@ app/Madeira/JITAllocator.h, Madeira.entitlements, madeira-jit.js).
 | `FEX::Config::LoadConfig("bb-probe", environ)` | Linux config paths | Point it at the app sandbox, or set options in code. |
 | `host_call_arm64.S` | ELF directives (`.type`, `.size`, `.note.GNU-stack`); symbol without `_` | Mach-O: `_gow3cpu_host_call`, no ELF directives. |
 | **Darwin arm64 ABI** | AAPCS64: every stack argument takes an 8-byte slot | Apple packs stack arguments at **natural alignment** (an int32 takes 4 bytes). `CallHost` copies 8-byte slots, so any host import with more than 8 integer/pointer arguments **and** sub-64-bit stack arguments gets the wrong values. Audit these imports, or add a per-import signature. |
+| `guest_cpu_hook` RIP changes | Upstream FEX (gow3_android) | In willfaust/FEX, `syscall` ends a JIT block only on `_WIN32` (`DEFAULT_SYSCALL_FLAGS`), so a hook that sets RIP is ignored. Before the game's hooks are used, give SYSCALL `FLAGS_BLOCK_END` on Apple (a small FEX patch). Host stubs don't need it. |
 | x18 | not used (good) | x18 is reserved on Darwin; keep it that way, since fex-ios already avoids it. |
 | TSC | `cntvct_el0`, `cntfrq_el0` | Both readable from EL0 on Apple (24 MHz); keep the SMALLTSCSCALE scaling. |
 | AVX | `wide_xmm = AVX && SVE256` | Apple has no SVE, so this takes the same 128-bit path as Snapdragon. |
