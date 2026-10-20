@@ -17,6 +17,12 @@ permissions:
 
 env:
   CONFIGURATION: ${{ inputs.configuration || 'Debug' }}
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: 2G
+  CCACHE_SLOPPINESS: clang_index_store,file_stat_matches,include_file_ctime,include_file_mtime,ivfsoverlay,pch_defines,modules,system_headers,time_macros
+  CCACHE_FILECLONE: 'true'
+  CCACHE_DEPEND: 'true'
+  CCACHE_INODECACHE: 'true'
 
 jobs:
   ipa:
@@ -30,7 +36,31 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      # The native core only changes with native/ or the FEX commit (or the compiler): restore
+      # the finished archive and skip the FEX checkout and build when none of them changed.
+      - name: Native core cache key
+        id: native-key
+        run: |
+          fex=$(git rev-parse HEAD:native/third_party/FEX)
+          xcode=$(xcodebuild -version | shasum | cut -c1-12)
+          echo "key=native-${{ runner.os }}-$fex-$xcode-${{ hashFiles('native/cmake/**', 'native/cpu/**', 'native/jit/**', 'native/selftest/**', 'native/include/**', 'native/scripts/**') }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the native core
+        id: native-cache
+        uses: actions/cache@v4
+        with:
+          path: app/modules/gow3-core/ios/lib
+          key: ${{ steps.native-key.outputs.key }}
+
+      - name: ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-${{ runner.os }}-${{ github.sha }}
+          restore-keys: ccache-${{ runner.os }}-
+
       - name: FEX and the submodules its iOS build needs
+        if: steps.native-cache.outputs.cache-hit != 'true'
         run: |
           git submodule update --init --depth 1 native/third_party/FEX
           cd native/third_party/FEX
@@ -40,11 +70,13 @@ jobs:
 
       - name: Tools
         run: |
-          brew install ninja
+          brew install ninja ccache
           xcodebuild -version
           cmake --version
+          ccache --zero-stats
 
       - name: Native core (FEXCore + gow3core for iOS arm64)
+        if: steps.native-cache.outputs.cache-hit != 'true'
         run: native/scripts/build-ios.sh build/native-ios
 
       - uses: actions/setup-node@v5
@@ -52,6 +84,13 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: app/package-lock.json
+
+      - name: CocoaPods cache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/CocoaPods
+          key: pods-${{ runner.os }}-${{ hashFiles('app/package-lock.json') }}
+          restore-keys: pods-${{ runner.os }}-
 
       - name: Expo prebuild
         working-directory: app
@@ -71,6 +110,7 @@ jobs:
           test "$status" -eq 0
           # The executable must exist: a failed link still leaves a resource-only .app behind.
           test -f "../../build/xcode/Build/Products/$CONFIGURATION-iphoneos/gow3ios.app/gow3ios"
+          ccache --show-stats || true
 
       - name: Package the IPA (ad-hoc signed with the app's entitlements; SideStore re-signs it)
         run: |
