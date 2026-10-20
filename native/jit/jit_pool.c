@@ -205,6 +205,13 @@ int gow3_jit_munmap_hook(void *addr, size_t length) {
     return munmap(addr, length);
 }
 
+/* __builtin___clear_cache lowers to a call of __clear_cache, which Apple's iOS runtime does not
+ * provide; FEXCore uses it for every code write. sys_icache_invalidate is the Darwin equivalent. */
+__attribute__((visibility("default"))) void gow3_clear_cache(char *begin, char *end) __asm__("___clear_cache");
+void gow3_clear_cache(char *begin, char *end) {
+    if (end > begin) sys_icache_invalidate(begin, (size_t)(end - begin));
+}
+
 int64_t gow3_jit_native_test(void) {
     static const uint32_t code[] = {0xd2800540u /* mov x0, #42 */, 0xd65f03c0u /* ret */};
     void *rx = gow3_jit_alloc(2 * PAGE);

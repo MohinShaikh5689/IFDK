@@ -7,7 +7,8 @@ add_library(gow3core STATIC
   "${GOW3_NATIVE}/cpu/host_call_arm64.S"
   "${GOW3_NATIVE}/selftest/selftest.cpp")
 target_include_directories(gow3core PRIVATE "${GOW3_NATIVE}/include" "${GOW3_NATIVE}/cpu" "${CMAKE_BINARY_DIR}/generated")
-target_link_libraries(gow3core PRIVATE FEXCore FEXCore_Base fmt::fmt)
+# JemallocLibs holds FEXCore::Allocator::malloc/free/... (Utils/AllocatorHooks.cpp; libc-backed on Apple).
+target_link_libraries(gow3core PRIVATE FEXCore FEXCore_Base JemallocLibs fmt::fmt)
 target_compile_options(gow3core PRIVATE ${FEX_TUNE_COMPILE_FLAGS})
 set_target_properties(gow3core PROPERTIES
   CXX_STANDARD 20

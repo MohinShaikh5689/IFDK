@@ -66,8 +66,11 @@ jobs:
           xcodebuild -workspace gow3ios.xcworkspace -scheme gow3ios -configuration "$CONFIGURATION" \
             -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath ../../build/xcode \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build | tee ../../build/xcodebuild.log | grep -E 'error:|warning: .*gow3|BUILD (SUCCEEDED|FAILED)' || true
-          test -d "../../build/xcode/Build/Products/$CONFIGURATION-iphoneos/gow3ios.app"
+            build > ../../build/xcodebuild.log 2>&1 && status=0 || status=$?
+          grep -E 'error:|Undefined symbols|duplicate symbol|^  "|\*\* BUILD' ../../build/xcodebuild.log | head -80 || true
+          test "$status" -eq 0
+          # The executable must exist: a failed link still leaves a resource-only .app behind.
+          test -f "../../build/xcode/Build/Products/$CONFIGURATION-iphoneos/gow3ios.app/gow3ios"
 
       - name: Package the IPA (ad-hoc signed with the app's entitlements; SideStore re-signs it)
         run: |
