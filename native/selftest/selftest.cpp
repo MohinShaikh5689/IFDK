@@ -7,12 +7,14 @@
 
 #include <chrono>
 #include <cinttypes>
+#include <csignal>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <cerrno>
 #include <string>
+#include <dlfcn.h>
 #include <fcntl.h>
 #include <mach/mach.h>
 #include <mach/vm_map.h>
@@ -80,11 +82,66 @@ void Log(const char* fmt, ...) {
     if (n < 0) return;
     if (n > (int)sizeof(line) - 2) n = sizeof(line) - 2;
     line[n++] = '\n';
-    std::fwrite(line, 1, n, stderr);
-    if (log_fd >= 0) {
-        (void)write(log_fd, line, n);
-        fsync(log_fd);
+    // While a self-test runs, stderr is the log file, so FEXCore's messages and Fatal() land there too.
+    (void)write(STDERR_FILENO, line, n);
+    if (log_fd >= 0) fsync(log_fd);
+}
+
+// Writes the faulting signal, pc, fault address and their images to the log, then lets the
+// crash happen as before. SIGTRAP from the JIT protocol's brk #0xf00d goes to the earlier handler.
+struct sigaction previous[32];
+constexpr int CrashSignals[] = {SIGSEGV, SIGBUS, SIGILL, SIGTRAP, SIGABRT, SIGFPE, SIGSYS};
+
+void Where(char* out, size_t cap, uint64_t address) {
+    Dl_info info;
+    if (dladdr(reinterpret_cast<void*>(address), &info) && info.dli_fname) {
+        const char* base = std::strrchr(info.dli_fname, '/');
+        std::snprintf(out, cap, "%s+%#llx %s", base ? base + 1 : info.dli_fname,
+                      (unsigned long long)(address - reinterpret_cast<uintptr_t>(info.dli_fbase)), info.dli_sname ? info.dli_sname : "");
+    } else {
+        std::snprintf(out, cap, "?");
     }
+}
+
+void Crash(int sig, siginfo_t* info, void* context) {
+    auto* uc = static_cast<ucontext_t*>(context);
+    const auto& ss = uc->uc_mcontext->__ss;
+    if (sig == SIGTRAP && !(ss.__pc & 3) && *reinterpret_cast<const uint32_t*>(ss.__pc) == 0xd43e01a0u && previous[sig].sa_sigaction) {
+        previous[sig].sa_sigaction(sig, info, context); // brk #0xf00d
+        return;
+    }
+    if (sig != SIGTRAP && guest_cpu_handle_fault(sig, info, context)) return; // FEXCore's own faults, as the runtime does
+    char pc[256], lr[256];
+    Where(pc, sizeof(pc), ss.__pc);
+    Where(lr, sizeof(lr), ss.__lr);
+    Log("CRASH: signal %d code %d addr %#llx far %#llx esr %#x", sig, info->si_code, (unsigned long long)(uintptr_t)info->si_addr,
+        (unsigned long long)uc->uc_mcontext->__es.__far, uc->uc_mcontext->__es.__esr);
+    Log("CRASH: pc %#llx %s", (unsigned long long)ss.__pc, pc);
+    Log("CRASH: lr %#llx %s", (unsigned long long)ss.__lr, lr);
+    Log("CRASH: sp %#llx x0 %#llx x1 %#llx x8 %#llx x16 %#llx", (unsigned long long)ss.__sp, (unsigned long long)ss.__x[0],
+        (unsigned long long)ss.__x[1], (unsigned long long)ss.__x[8], (unsigned long long)ss.__x[16]);
+    if (sig == SIGTRAP || sig == SIGILL) {
+        Log("CRASH: instruction %#x", (ss.__pc & 3) ? 0u : *reinterpret_cast<const uint32_t*>(ss.__pc));
+    }
+    uint64_t fp = ss.__fp;
+    for (int i = 0; i < 12 && fp && !(fp & 7); ++i) { // frame-pointer walk
+        const uint64_t ret = reinterpret_cast<const uint64_t*>(fp)[1];
+        if (!ret) break;
+        char where[256];
+        Where(where, sizeof(where), ret);
+        Log("CRASH: #%d %#llx %s", i, (unsigned long long)ret, where);
+        fp = reinterpret_cast<const uint64_t*>(fp)[0];
+    }
+    signal(sig, SIG_DFL); // returning re-executes the faulting instruction, which now crashes normally
+    if (sig == SIGABRT) raise(sig);
+}
+
+void InstallCrashLog() {
+    struct sigaction sa;
+    std::memset(&sa, 0, sizeof(sa));
+    sa.sa_flags = SA_SIGINFO;
+    sa.sa_sigaction = Crash;
+    for (int sig : CrashSignals) sigaction(sig, &sa, &previous[sig]);
 }
 
 uint64_t Footprint() {
@@ -403,7 +460,10 @@ int gow3_jit_setup(unsigned pool_mb) {
 
 size_t gow3_selftest(const char* log_path, char* out, size_t capacity) {
     if (log_path) log_fd = open(log_path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    const int saved_stderr = dup(STDERR_FILENO);
+    if (log_fd >= 0) dup2(log_fd, STDERR_FILENO);
     gow3_jit_install_trap_fallback();
+    InstallCrashLog();
     Json j;
     Log("selftest: start, footprint %" PRIu64 " MiB, available %zu MiB", Footprint() / MiB, os_proc_available_memory() / MiB);
     Log("selftest: memory aliasing");
@@ -430,6 +490,10 @@ size_t gow3_selftest(const char* log_path, char* out, size_t capacity) {
         j.str("fex", "skipped: enable JIT first");
     }
     Log("selftest: done");
+    if (saved_stderr >= 0) {
+        dup2(saved_stderr, STDERR_FILENO);
+        close(saved_stderr);
+    }
     if (log_fd >= 0) {
         close(log_fd);
         log_fd = -1;

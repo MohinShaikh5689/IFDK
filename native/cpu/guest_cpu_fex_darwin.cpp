@@ -72,6 +72,11 @@ constexpr size_t HostPage = 16384;
     _exit(21);
 }
 
+// Progress of guest_cpu_init on stderr, so a crash there shows how far it got.
+void Step(const char* what) {
+    std::fprintf(stderr, "%s\n", what);
+}
+
 FEXCore::Context::Context* ctx;
 void* (*low_map)(size_t, int);
 bool wide_xmm;
@@ -305,20 +310,25 @@ void guest_cpu_init(void* (*map)(size_t size, int prot)) {
     FEXCore::DualMap::WriteOffset = gow3_jit_write_offset();
     FEXCore::Allocator::mmap = gow3_jit_mmap_hook;
     FEXCore::Allocator::munmap = gow3_jit_munmap_hook;
-    FEXCore::Allocator::free(FEXCore::Allocator::malloc(64));
     LogMan::Throw::InstallHandler(LogAssert);
     LogMan::Msg::InstallHandler(LogMessage);
+    Step("fex: allocator");
+    FEXCore::Allocator::free(FEXCore::Allocator::malloc(64));
     // FEX's file and environment config layers live in its Common library, which FEX does not
     // build for Apple; the defaults plus the options set here are all the port uses.
+    Step("fex: config");
     FEXCore::Config::Initialize();
     FEXCore::Config::Load();
     FEXCore::Config::ReloadMetaLayer();
     FEXCore::Config::Set(FEXCore::Config::CONFIG_IS64BIT_MODE, "1");
+    Step("fex: host features");
     const auto features = gow3_fex_host_features();
     wide_xmm = features.SupportsAVX && features.SupportsSVE256;
+    Step("fex: create context");
     ctx = FEXCore::Context::Context::CreateNewContext(features).release();
     ctx->SetSignalDelegator(&delegator);
     ctx->SetSyscallHandler(&handler);
+    Step("fex: init core");
     if (!ctx->InitCore()) {
         Fatal("FEXCore initialization failed");
     }
@@ -332,6 +342,7 @@ void guest_cpu_init(void* (*map)(size_t size, int prot)) {
             ++tsc_shift;
         }
     }
+    Step("fex: host stubs");
     stubs = static_cast<unsigned char*>(map(StubBytes, PROT_READ | PROT_WRITE));
     if (!stubs) {
         Fatal("cannot allocate host function stubs");
