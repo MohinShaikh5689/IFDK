@@ -21,6 +21,9 @@
       },
       "entitlements": {
         "get-task-allow": true
+      },
+      "runtimeVersion": {
+        "policy": "appVersion"
       }
     },
     "plugins": [
@@ -33,6 +36,19 @@
           }
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "860d64ad-03e3-4f59-aa15-3d5d25a9ceac"
+      }
+    },
+    "owner": "mohin.shaikh",
+    "updates": {
+      "url": "https://u.expo.dev/860d64ad-03e3-4f59-aa15-3d5d25a9ceac",
+      "requestHeaders": {
+        "expo-channel-name": "production"
+      },
+      "fallbackToCacheTimeout": 5000
+    }
   }
 }

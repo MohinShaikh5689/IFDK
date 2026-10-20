@@ -10,13 +10,13 @@ on:
         description: Debug = dev client (JS from Metro), Release = standalone (JS bundled)
         type: choice
         options: [Debug, Release]
-        default: Debug
+        default: Release
 
 permissions:
   contents: read
 
 env:
-  CONFIGURATION: ${{ inputs.configuration || 'Debug' }}
+  CONFIGURATION: ${{ inputs.configuration || 'Release' }}
   CCACHE_DIR: ${{ github.workspace }}/.ccache
   CCACHE_MAXSIZE: 2G
   CCACHE_SLOPPINESS: clang_index_store,file_stat_matches,include_file_ctime,include_file_mtime,ivfsoverlay,pch_defines,modules,system_headers,time_macros

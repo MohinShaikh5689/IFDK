@@ -27,6 +27,8 @@ Expo (React Native) app shell: launcher, dump import via Files app, settings, JI
 
 ## App shell decisions
 - The shell is Expo / React Native, which the user chose. The native core is a local Expo module whose podspec vendors static libs built by CMake in an earlier CI step.
+- JS ships by EAS Update (project @mohin.shaikh/gow3-ios, channel `production`): `cd app && EXPO_TOKEN=… npx eas-cli update --channel production --environment production --platform ios --message …`.
+  CI builds Release by default (bundled JS + update check at launch, no Metro). runtimeVersion is the app version, so bump `expo.version` in app.json whenever native code changes, or old IPAs will receive incompatible JS.
 - CI: `npx expo prebuild -p ios`, then `xcodebuild` with `CODE_SIGNING_ALLOWED=NO`, then package `Payload/` as an unsigned `.ipa`. EAS Build isn't used because it wants Apple signing credentials.
 - RN does not own the game's rendering. The game runs on its own threads and draws to a CAMetalLayer in a native view controller presented over RN.
   SDL3 can't own the UIApplication here, so the window comes from our own iOS window code. Input goes through the GameController framework, and audio through SDL audio without SDL_main, or AudioQueue as a fallback.
