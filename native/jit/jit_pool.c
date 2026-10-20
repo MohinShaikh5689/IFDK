@@ -146,8 +146,8 @@ void *gow3_jit_alloc(size_t size) {
         }
         used += size;
         pthread_mutex_unlock(&lock);
-        /* The emitter writes through the RW view, so the guard goes there; FEX protects the RX one. */
-        mprotect((void *)(rw_base + offset + size - PAGE), PAGE, PROT_NONE);
+        /* No guard page: FEX asks for buffers as small as one host page (its dispatcher: 16 KiB) and
+         * fills all of it. Overflow is caught on its temporary compile buffer, not in the pool. */
         return (void *)(rx_base + offset);
     }
     pthread_mutex_unlock(&lock);
@@ -158,8 +158,7 @@ void gow3_jit_free(void *rx, size_t size) {
     if (!rx || !size) return;
     size = (size + PAGE - 1) & ~(PAGE - 1);
     const size_t offset = (uintptr_t)rx - rx_base;
-    mprotect((void *)(rw_base + offset), size, PROT_READ | PROT_WRITE);
-    /* FEX left the last RX page inaccessible; a page that cannot be made executable again stays out. */
+    /* FEX may have made the last RX page inaccessible; a page that cannot be made executable again stays out. */
     if (mprotect(rx, size, PROT_READ | PROT_EXEC) != 0) {
         size -= PAGE;
         if (!size) return;
