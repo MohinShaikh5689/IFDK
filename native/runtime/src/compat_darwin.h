@@ -45,6 +45,9 @@ int compat_getrusage(int who, struct rusage *usage);
 #define st_mtim st_mtimespec
 #define st_ctim st_ctimespec
 #define RUSAGE_THREAD 1
+#ifndef PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP
+#define PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP PTHREAD_RECURSIVE_MUTEX_INITIALIZER
+#endif
 #define getrusage compat_getrusage
 /* Darwin condition variables wait on CLOCK_REALTIME only. */
 static inline int pthread_condattr_setclock(pthread_condattr_t *attr, clockid_t clock) {
