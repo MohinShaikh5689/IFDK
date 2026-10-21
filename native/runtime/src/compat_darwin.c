@@ -4,9 +4,6 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <unistd.h>
-#ifdef __APPLE__
-#include <sys/random.h>
-#endif
 
 static int64_t ns_until(clockid_t clock, const struct timespec *deadline) {
     struct timespec now;

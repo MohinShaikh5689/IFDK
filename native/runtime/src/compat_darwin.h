@@ -22,7 +22,6 @@ ssize_t compat_getrandom(void *buffer, size_t size, unsigned flags);
 uint64_t compat_gettid(void);
 
 #ifdef __APPLE__
-#include <sys/random.h>
 #define pthread_mutex_timedlock compat_mutex_timedlock
 #define pthread_rwlock_timedrdlock compat_rwlock_timedrdlock
 #define pthread_rwlock_timedwrlock compat_rwlock_timedwrlock

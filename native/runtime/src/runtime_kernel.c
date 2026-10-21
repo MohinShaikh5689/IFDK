@@ -14,7 +14,9 @@
 #include <unistd.h>
 #include <sys/time.h>
 #ifndef _WIN32
+#ifndef __APPLE__ /* the iOS SDK has no sys/random.h; compat_darwin.h provides getrandom */
 #include <sys/random.h>
+#endif
 #include <sys/resource.h>
 #endif
 #define ERR(n) ((int32_t)(UINT32_C(0x80020000)|(n)))
