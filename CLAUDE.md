@@ -67,6 +67,11 @@ Expo (React Native) app shell: launcher, dump import via Files app, settings, JI
 - Built-in JIT (docs/JIT.md): `native/jit-helper` is a classic app extension linking StikJIT (fetched by `native/scripts/fetch-stikjit.sh`,
   pinned by SHA-256), built with `swiftc` and put into the .app by `native/scripts/build-jit-helper.sh` after xcodebuild.
   `native/rppairing` (Rust, from Madeira) does iOS 27 in-app pairing and is vendored as `libgow3_rppairing.a`.
-4. Build the gow3 runtime and loader for iOS, testing on Linux ARM64 first.
+4. Build the gow3 runtime and loader for iOS, testing on Linux ARM64 first. IN PROGRESS.
+   `native/runtime/` holds gow3_android `src/` (imported unmodified at 5c2219d, then iOS commits; see UPSTREAM.md).
+   Done: guest memory in the 64 GiB iOS window with a file-backed pool (`GOW3_WINDOW_LAYOUT`), `compat_darwin.{h,c}`,
+   and every runtime file without SDL3/FFmpeg compiles for iOS (`.github/workflows/runtime.yml`; Linux tests in `tests/run.sh`).
+   Next: probe.c as an in-app `gow3_start` (CPU-only first), stubs for the GPU/SDL3/FFmpeg parts, then link with `native/cpu`.
+   The loader reads `boot.bin` made by gow3's `scripts/prepare.py` (Python), so the first device tests need it run on a PC.
 5. Get MoltenVK rendering with shadPS4's video core, then boot GoW3.
 6. Tune memory to fit 8 GB, and tune performance and thermals.
