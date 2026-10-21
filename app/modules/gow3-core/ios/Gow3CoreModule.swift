@@ -2,6 +2,7 @@
 // The Expo bridge to the native core (native/include/gow3core.h, linked from lib/libgow3core_all.a).
 import ExpoModulesCore
 import GameController
+import Metal
 import UIKit
 
 @_silgen_name("gow3_device_report")
@@ -81,8 +82,19 @@ public class Gow3CoreModule: Module {
   public func definition() -> ModuleDefinition {
     Name("Gow3Core")
 
+    // The native report plus what the GPU supports: PS4 textures are BC1-BC7, and without BC support
+    // they would have to be transcoded (to ASTC) or expanded to RGBA (4-8x the memory).
     Function("deviceReport") { () -> String in
-      readJson { gow3_device_report($0, $1) }
+      let json = readJson { gow3_device_report($0, $1) }
+      guard let gpu = MTLCreateSystemDefaultDevice(),
+            var report = (try? JSONSerialization.jsonObject(with: Data(json.utf8))) as? [String: Any] else { return json }
+      report["gpu"] = gpu.name
+      report["bc_textures"] = gpu.supportsBCTextureCompression
+      report["gpu_apple9"] = gpu.supportsFamily(.apple9)
+      report["gpu_max_buffer_mb"] = gpu.maxBufferLength >> 20
+      report["gpu_working_set_mb"] = gpu.recommendedMaxWorkingSetSize >> 20
+      guard let data = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]) else { return json }
+      return String(decoding: data, as: UTF8.self)
     }
 
     Function("isDebuggerAttached") { () -> Bool in

@@ -5,7 +5,12 @@
  * reserved as one placeholder that views of the section replace (VirtualAlloc2/MapViewOfFile3,
  * as shadPS4 does); see the "host mappings" section below.
  * Guest addresses are placed below 1 TiB (PS4 user range): GPU descriptors
- * encode 40-bit addresses, so host-default 0x7f... addresses would not fit. */
+ * encode 40-bit addresses, so host-default 0x7f... addresses would not fit.
+ * iOS (GOW3_WINDOW_LAYOUT): the only large free range is [0x70_0000_0000, 0x80_0000_0000), 64 GiB
+ * with the increased-memory-limit entitlement (gow3-ios docs/AUDIT.md). The low map, the backing view
+ * and the PS4 user range all live in it, and it is reserved whole up front, so MAP_FIXED inside it
+ * can never land on host memory. The pool is a sparse file instead of a memfd: iOS does not count
+ * dirty pages of a shared file mapping against the app's memory limit. */
 #define _GNU_SOURCE
 #include "runtime.h"
 #include <stdio.h>
@@ -23,6 +28,9 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #endif
+#if defined(__APPLE__) && !defined(GOW3_WINDOW_LAYOUT)
+#define GOW3_WINDOW_LAYOUT 1
+#endif
 /* sceKernelGetDirectMemorySize on retail PS4: 5056 MiB. GOW3_DMEM_MB raises it (the resolution
  * patches above 1080p need about 4 GiB more; run.sh sets it). */
 static uint64_t pool_size_bytes(void) {
@@ -31,6 +39,9 @@ static uint64_t pool_size_bytes(void) {
         const char *env = getenv("GOW3_DMEM_MB");
         uint64_t mb = env ? strtoull(env, NULL, 10) : 0;
         if (mb < 5056 || mb > 16384) mb = 5056;
+#ifdef GOW3_WINDOW_LAYOUT
+        if (mb > 11264) mb = 11264; /* pool + flexible span must fit the backing view (12 GiB) */
+#endif
         size = mb * 1024 * 1024;
     }
     return size;
@@ -38,8 +49,20 @@ static uint64_t pool_size_bytes(void) {
 #define POOL_SIZE pool_size_bytes()
 #define FLEXIBLE_SIZE (UINT64_C(448) * 1024 * 1024)
 #define PAGE UINT64_C(16384)
+#ifdef GOW3_WINDOW_LAYOUT
+/* [LOW_MIN,BACKING_MIN) low map 4 GiB, [BACKING_MIN,USER_MIN) backing view 12 GiB, then 48 GiB of
+ * PS4 user range. */
+#define LOW_MIN UINT64_C(0x7000000000)
+#define BACKING_MIN UINT64_C(0x7100000000)
+#define USER_MIN UINT64_C(0x7400000000)
+#define USER_MAX UINT64_C(0x8000000000)
+#define LOW_MAX BACKING_MIN
+#else
+#define LOW_MIN UINT64_C(0x0800000000)
 #define USER_MIN UINT64_C(0x1000000000)
 #define USER_MAX UINT64_C(0xfc00000000)
+#define LOW_MAX USER_MIN
+#endif
 #define LIMIT 4096
 #define INVALID ((int32_t)UINT32_C(0x80020016))
 #define NO_MEMORY ((int32_t)UINT32_C(0x8002000c))
@@ -96,7 +119,13 @@ static int valid_alignment(uint64_t a) { return a >= PAGE && a <= POOL_SIZE && !
 static uint64_t align_up(uint64_t n, uint64_t a) { return (n+a-1) & ~(a-1); }
 static int host_prot(int prot) {
     /* GPU read/write bits (0x10/0x20) need host access for the future GPU backend. */
+#ifdef __APPLE__
+    /* Guest code is only read by the guest CPU (FEXCore), never executed natively, and iOS refuses
+     * executable mappings outside the JIT pool. */
+    return ((prot & 0x11) ? PROT_READ : 0) | ((prot & 0x22) ? PROT_WRITE|PROT_READ : 0) | ((prot & 4) ? PROT_READ : 0);
+#else
     return ((prot & 0x11) ? PROT_READ : 0) | ((prot & 0x22) ? PROT_WRITE|PROT_READ : 0) | ((prot & 4) ? PROT_EXEC|PROT_READ : 0);
+#endif
 }
 #ifdef _WIN32
 /* ---- host mappings (Windows) ----
@@ -241,6 +270,77 @@ static int pool(void) {
     backing_base=MapViewOfFile3(section,GetCurrentProcess(),NULL,0,bytes,0,PAGE_READWRITE,NULL,0);
     return backing_base ? 0 : -1;
 }
+#elif defined(GOW3_WINDOW_LAYOUT)
+/* ---- host mappings (iOS window) ----
+ * The whole window is one PROT_NONE reservation; mapping replaces part of it with MAP_FIXED and
+ * unmapping puts the reservation back, so nothing else is ever placed inside it. */
+static int window_reserved;
+static int window_fail(const char *what, uintptr_t address, uint64_t size) {
+    fprintf(stderr,"Runtime: %s failed at %p (+0x%" PRIx64 "): %s\n",what,(void *)address,size,strerror(errno));
+    return -1;
+}
+static int window_reserve(void) {
+    if (window_reserved) return 0;
+    void *p=mmap((void *)LOW_MIN,USER_MAX-LOW_MIN,PROT_NONE,MAP_PRIVATE|MAP_ANON|MAP_NORESERVE,-1,0);
+    if (p!=(void *)LOW_MIN) {
+        if (p!=MAP_FAILED) munmap(p,USER_MAX-LOW_MIN);
+        fprintf(stderr,"STOP: the guest address window [%p,%p) is not free (got %p). On iOS it needs the "
+                "increased-memory-limit entitlement.\n",(void *)LOW_MIN,(void *)USER_MAX,p);
+        return -1;
+    }
+    window_reserved=1;
+    return 0;
+}
+void runtime_memory_reserve(void) { if (window_reserve()) exit(21); }
+static int in_window(uintptr_t address, uint64_t size) {
+    return address>=LOW_MIN && address<=USER_MAX && size<=USER_MAX-address;
+}
+/* The pool is a sparse, unlinked file in GOW3_POOL_DIR (the app's tmp directory on iOS). */
+static int pool(void) {
+    if (pool_fd>=0) return 0;
+    if (window_reserve()) return -1;
+    const char *dir=getenv("GOW3_POOL_DIR");
+    if (!dir || !*dir) dir=getenv("TMPDIR");
+    if (!dir || !*dir) dir="/tmp";
+    char path[1024];
+    snprintf(path,sizeof(path),"%s/gow3-guest-memory-XXXXXX",dir);
+    int fd=mkstemp(path);
+    if (fd<0) return window_fail("creating the guest memory file",0,0);
+    unlink(path);
+#ifdef F_SETPROTECTIONCLASS
+    /* Class D (no data protection): the mapping must keep working while the device is locked. */
+    fcntl(fd,F_SETPROTECTIONCLASS,4);
+#endif
+    uint64_t bytes=POOL_SIZE+FLEX_SPAN;
+    if (ftruncate(fd,(off_t)bytes)) { close(fd); return window_fail("sizing the guest memory file",0,bytes); }
+    void *view=mmap((void *)BACKING_MIN,bytes,PROT_READ|PROT_WRITE,MAP_SHARED|MAP_FIXED,fd,0);
+    if (view==MAP_FAILED) { close(fd); return window_fail("mapping the backing view",BACKING_MIN,bytes); }
+    pool_fd=fd;
+    backing_base=view;
+    return 0;
+}
+static int host_map(uintptr_t address, uint64_t size, int prot, int reserved, uint64_t phys) {
+    if (!in_window(address,size) || window_reserve()) return -1;
+    void *mapped = !reserved
+        ? mmap((void *)address,size,prot,MAP_SHARED|MAP_FIXED,pool_fd,(off_t)phys)
+        : mmap((void *)address,size,PROT_NONE,MAP_PRIVATE|MAP_ANON|MAP_NORESERVE|MAP_FIXED,-1,0);
+    return mapped==MAP_FAILED ? -1 : 0;
+}
+static int host_unmap(uintptr_t address, uint64_t size) {
+    if (!in_window(address,size)) return -1;
+    return mmap((void *)address,size,PROT_NONE,MAP_PRIVATE|MAP_ANON|MAP_NORESERVE|MAP_FIXED,-1,0)==MAP_FAILED ? -1 : 0;
+}
+static int host_protect(uintptr_t address, uint64_t size, int prot) { return mprotect((void *)address,size,prot); }
+/* Released pages read as zero when reused, and give their storage back. */
+static void host_discard(uint64_t phys, uint64_t size) {
+#ifdef __APPLE__
+    struct fpunchhole hole={0,0,(off_t)phys,(off_t)size};
+    if (!fcntl(pool_fd,F_PUNCHHOLE,&hole)) return;
+#else
+    if (!fallocate(pool_fd,FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE,(off_t)phys,(off_t)size)) return;
+#endif
+    memset(backing_base+phys,0,size);
+}
 #else
 /* Direct memory occupies [0,POOL_SIZE) of the memfd, flexible memory [POOL_SIZE,+FLEX_SPAN). */
 static int pool(void) {
@@ -348,7 +448,7 @@ static int overlaps(uintptr_t start, uintptr_t end, int ignore_reserved) {
 }
 /* First-fit search in the PS4 user range, starting from the hint. */
 static uintptr_t find_free(uintptr_t hint, uint64_t size, uint64_t alignment) {
-    uintptr_t at=align_up(hint<USER_MIN ? USER_MIN : hint, alignment);
+    uintptr_t at=align_up(hint<USER_MIN || hint>=USER_MAX ? USER_MIN : hint, alignment);
     for (size_t i=vma_index(at); at+size<=USER_MAX; ++i) {
         if (i==vma_count || vmas[i].start>=at+size) return at;
         at=align_up(vmas[i].end,alignment);
@@ -372,6 +472,12 @@ static int32_t place(void **inout, uint64_t size, int prot, int flags, uint64_t 
     uintptr_t address=(uintptr_t)*inout;
     if (flags & MAP_FIXED_FLAG) {
         if (!address || address%PAGE) return INVALID;
+#ifdef GOW3_WINDOW_LAYOUT
+        if (address<USER_MIN || address>USER_MAX || size>USER_MAX-address) {
+            fprintf(stderr,"Runtime: fixed guest mapping %p (+0x%" PRIx64 ") is outside the iOS guest window\n",(void *)address,size);
+            return NO_MEMORY;
+        }
+#endif
         if ((flags & MAP_NO_OVERWRITE) && overlaps(address,address+size,1)) return NO_MEMORY;
     } else {
         address=find_free(address,size,alignment);
@@ -664,20 +770,28 @@ uintptr_t runtime_memory_resolve(const char *name) {
     return RUNTIME_LOOKUP(exports,name);
 }
 /* Host-owned memory the guest can see (image, stacks, trampolines) lives in
- * [LOW_MIN, USER_MIN): PS4 code packs pointers into 40-bit fields. */
-#define LOW_MIN UINT64_C(0x0800000000)
+ * [LOW_MIN, LOW_MAX): PS4 code packs pointers into 40-bit fields. */
 static uintptr_t low_next=LOW_MIN;
 void *runtime_low_map(size_t size, int prot) {
     size=align_up(size,PAGE);
     write_lock();
 #ifdef _WIN32
     void *p=NULL;
-    while (!p && low_next+size<=USER_MIN) {
+    while (!p && low_next+size<=LOW_MAX) {
         p=VirtualAlloc((void *)low_next,size,MEM_RESERVE|MEM_COMMIT,win_prot(prot));
         low_next+=size+UINT64_C(65536); /* unmapped gap catches overruns; allocation granularity */
     }
     write_unlock();
     return p;
+#elif defined(GOW3_WINDOW_LAYOUT)
+    void *p=MAP_FAILED;
+    /* Inside the reserved window: the PROT_NONE page left after each block catches overruns. */
+    if (!window_reserve() && low_next+size<=LOW_MAX) {
+        p=mmap((void *)low_next,size,prot,MAP_PRIVATE|MAP_ANON|MAP_FIXED,-1,0);
+        low_next+=size+PAGE;
+    }
+    write_unlock();
+    return p==MAP_FAILED ? NULL : p;
 #else
     void *p=MAP_FAILED;
     while (low_next+size<=USER_MIN) {
