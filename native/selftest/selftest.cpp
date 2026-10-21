@@ -15,6 +15,9 @@
 #include <cerrno>
 #include <string>
 #include <dlfcn.h>
+#include <fstream>
+#include <iterator>
+#include <mach-o/dyld.h>
 #include <fcntl.h>
 #include <mach/mach.h>
 #include <mach/vm_map.h>
@@ -29,6 +32,7 @@
 #ifndef VM_LEDGER_FLAG_NO_FOOTPRINT
 #define VM_LEDGER_FLAG_NO_FOOTPRINT (1 << 0)
 #endif
+extern "C" int csops(pid_t pid, unsigned int ops, void* useraddr, size_t usersize);
 // Private, exported by libsystem_kernel (Madeira and MeloNX use it for their JIT pools).
 extern "C" kern_return_t mach_memory_entry_ownership(mach_port_t mem_entry, mach_port_t owner, int ledger_tag, int ledger_flags);
 
@@ -154,6 +158,35 @@ std::string Sysctl(const char* name) {
     char buf[128] = {};
     size_t len = sizeof(buf) - 1;
     return sysctlbyname(name, buf, &len, nullptr, 0) == 0 ? std::string(buf) : std::string("?");
+}
+
+// "<key>name</key>" followed by <true/> in an entitlements plist.
+bool PlistTrue(const std::string& xml, const char* name) {
+    size_t at = xml.find(std::string("<key>") + name + "</key>");
+    if (at == std::string::npos) return false;
+    at = xml.find('<', at + std::strlen(name) + 11);
+    return at != std::string::npos && xml.compare(at, 7, "<true/>") == 0;
+}
+
+// What the code signature carries (csops CS_OPS_ENTITLEMENTS_BLOB: 8-byte blob header, then XML).
+std::string SignedEntitlements() {
+    std::string buf(256 * 1024, '\0');
+    if (csops(getpid(), 7, buf.data(), buf.size()) != 0) return {};
+    return buf.substr(8, buf.find('\0', 8) - 8);
+}
+
+// What the provisioning profile grants. A free account's profile lacks the kernel memory keys
+// unless GetMoreRam added them to the App ID, and then the signature can't use them either.
+std::string ProfileEntitlements() {
+    char path[1024];
+    uint32_t size = sizeof(path);
+    if (_NSGetExecutablePath(path, &size) != 0) return {};
+    std::string dir(path);
+    dir.resize(dir.rfind('/'));
+    std::ifstream in(dir + "/embedded.mobileprovision", std::ios::binary);
+    std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    size_t start = data.find("<key>Entitlements</key>"), end = data.find("</dict>", start);
+    return start == std::string::npos || end == std::string::npos ? std::string() : data.substr(start, end - start);
 }
 
 double Seconds(std::chrono::steady_clock::time_point a, std::chrono::steady_clock::time_point b) {
@@ -463,6 +496,11 @@ size_t gow3_device_report(char* out, size_t capacity) {
         j.unum("footprint_limit_mb", (uint64_t)vmi.limit_bytes_remaining / MiB + vmi.phys_footprint / MiB);
     }
     j.unum("available_mb", os_proc_available_memory() / MiB);
+    const std::string signed_ents = SignedEntitlements(), profile_ents = ProfileEntitlements();
+    j.boolean("ent_increased_memory", PlistTrue(signed_ents, "com.apple.developer.kernel.increased-memory-limit"));
+    j.boolean("ent_extended_va", PlistTrue(signed_ents, "com.apple.developer.kernel.extended-virtual-addressing"));
+    j.boolean("profile_increased_memory", PlistTrue(profile_ents, "com.apple.developer.kernel.increased-memory-limit"));
+    j.boolean("profile_extended_va", PlistTrue(profile_ents, "com.apple.developer.kernel.extended-virtual-addressing"));
     j.hex("cs_flags", gow3_jit_cs_flags());
     j.boolean("cs_debugged", gow3_jit_cs_debugged());
     j.boolean("debugger_attached", gow3_jit_traced());

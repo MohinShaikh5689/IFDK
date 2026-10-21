@@ -2,7 +2,7 @@
   "expo": {
     "name": "gow3-ios",
     "slug": "gow3-ios",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -21,7 +21,8 @@
       },
       "entitlements": {
         "get-task-allow": true,
-        "com.apple.developer.kernel.increased-memory-limit": true
+        "com.apple.developer.kernel.increased-memory-limit": true,
+        "com.apple.developer.kernel.extended-virtual-addressing": true
       },
       "runtimeVersion": {
         "policy": "appVersion"
