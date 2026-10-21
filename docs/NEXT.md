@@ -1,7 +1,29 @@
-# Next tasks (handover, 2026-10-21)
+# Next tasks (handover, 2026-10-21 evening)
 
-All work is on branch `claude/gallant-volta-65ov5k` (not merged into `main` yet: open a PR and merge it).
-Latest IPA: app **0.1.5** from the "iOS IPA" workflow on that branch (Actions → latest run → artifact `gow3-ios-Release-ipa`).
+**Status:** all on `main`. App **0.1.8** (Actions → "iOS IPA" on main → artifact `gow3-ios-Release-ipa`).
+- CPU side boots: module 1 (fixed: FEX unaligned-atomic backpatch now writes through the JIT pool's RW
+  alias, `native/patches/fex/0001-*.patch`), the game's entry runs, 6 guest threads start, and the
+  CPU-only run stops by design at `sceVideoOutOpen` (first GPU import).
+- GPU step 1 done: `native/gpu/screen_test.c` + `Gow3GameView.swift`. MoltenVK 1.4.2 on the A19:
+  Vulkan 1.3, 60 fps at 1206x2622, all four extensions shadPS4 requires are present.
+  Missing: `nullDescriptor` and `robustBufferAccess2` (shadPS4 asserts on both: replace the two
+  VK_NULL_HANDLE buffer bindings in vk_rasterizer.cpp with a dummy buffer, drop the robustness asserts),
+  `geometryShader` (shadPS4 skips those draws with a warning; GoW3's renderer comes from the PS3, which
+  had no GS, so likely unused; log the warning on device to confirm), `logicOp`, `shaderFloat64`.
+- Two game files were not found in the CPU-only run (EXEC/...): the full game must be on the phone
+  for the GPU work (`ENGLISH/`, `EXEC/` (30 GB), `sce_module/`, both `.plt` from the update).
+
+## Next: GPU step 2, shadPS4's video core in the app
+1. Build gow3_android `gpu/` for iOS (static, inside build-ios.sh): Boost headers, fmt, VMA, sirit,
+   Zydis, magic_enum, robin-map, xxhash, miniz, imgui; host shaders with glslang on the runner.
+   Leave out FSR 3/4, FFmpeg (avplayer: stub), SDL3.
+2. Port `video_core/page_manager.cpp` (futex, MAP_NORESERVE, 4 KiB tracking → 16 KiB),
+   `common/signal_context.cpp` / `shim/gow3gpu.cpp` fault context to Darwin `__ss`.
+3. Window: replace `shim/window.cpp` (SDL3) with Gow3GameView's CAMetalLayer (VK_EXT_metal_surface).
+4. Replace `native/runtime/ios/stub_gpu.c`, drop `--cpu-only`, boot to the first frame.
+
+---
+## Earlier handover (morning of 2026-10-21)
 
 ## Where things stand
 | Area | State |
