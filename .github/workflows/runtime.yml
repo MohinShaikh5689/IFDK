@@ -1,0 +1,29 @@
+name: Runtime
+
+on:
+  push:
+    paths: ['native/runtime/**', '.github/workflows/runtime.yml']
+  pull_request:
+    paths: ['native/runtime/**', '.github/workflows/runtime.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Runtime tests (iOS memory layout and Darwin compat, on Linux)
+        run: native/runtime/tests/run.sh
+
+  ios-compile:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Compile the runtime for iOS arm64
+        run: native/runtime/build-ios-check.sh
