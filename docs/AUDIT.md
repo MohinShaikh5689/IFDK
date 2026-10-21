@@ -88,7 +88,11 @@ Device: iPhone 17, `iPhone18,3`, iOS build 24A435, 7672 MB RAM, free Apple ID, d
   This is the way past the jetsam limit for the direct pool (replaces memfd; pages may be written back to flash under pressure).
 - **How Madeira gets past the limit** (checked 2026-10-21 in willfaust/Madeira). It uses two things, and does not lift the cap itself:
   1. It ships `com.apple.developer.kernel.increased-memory-limit`, and its code calls the result a "4096MB jetsam ceiling".
-     Our 3375 MB was measured without that entitlement. App 0.1.1 adds it. Re-run the self-test to see whether SideStore keeps it.
+     Our 3375 MB was measured without that entitlement. App 0.1.1 adds it, but the 0.1.1-era run still showed about 3.3 GB.
+     Madeira's own setup guide says free accounts can't provision the kernel memory keys through SideStore. It uses GetMoreRam,
+     which adds `increased-memory-limit` and `extended-virtual-addressing` to the App ID, and then the same IPA is reinstalled.
+     Extended VA would also fix the address-space problem (8 GB+ reservations fail today). App 0.1.2 asks for both keys,
+     and the device report shows what the signature and the profile carry (`ent_*`, `profile_*`).
   2. A file-backed "swap tier" (ml1077, in Wine's `virtual_ios.c`; `swap-mb = 3072` in its example config).
      Guest commits go to MAP_SHARED mappings of a sparse `tmp/madeira-swap.bin`. The file is created with `NSFileProtectionNone`,
      so the mapping still works while the phone is locked. Decommit punches holes with `fcntl(F_PUNCHHOLE)`, and `swap-mb` is a soft cap on disk use.
