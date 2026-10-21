@@ -13,6 +13,10 @@ private func gow3_jit_debugged() -> Int32
 private func gow3_jit_debugger_attached() -> Int32
 @_silgen_name("gow3_jit_setup")
 private func gow3_jit_setup(_ poolMb: UInt32) -> Int32
+@_silgen_name("gow3_start")
+private func gow3_start(_ argc: Int32, _ argv: UnsafePointer<UnsafePointer<CChar>?>?, _ logPath: UnsafePointer<CChar>?) -> Int32
+@_silgen_name("gow3_jit_pool_ready")
+private func gow3_jit_pool_ready() -> Int32
 @_silgen_name("gow3_selftest")
 private func gow3_selftest(_ logPath: UnsafePointer<CChar>?, _ out: UnsafeMutablePointer<CChar>?, _ capacity: Int) -> Int
 
@@ -78,6 +82,16 @@ public class Gow3CoreModule: Module {
     }
     return nil
   }
+
+  /// Documents/gow3: boot-linked.bin, content.bin and patches.bin from a PC install of gow3 (its out/
+  /// folder) and game/, the dumped game folder (eboot.bin, sce_sys, ...). Copied in with the Files app.
+  private static var gameRoot: URL {
+    FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("gow3")
+  }
+
+  private static var gameLogURL: URL { gameRoot.appendingPathComponent("loader.log") }
+
+  private static var gameStarted = false
 
   public func definition() -> ModuleDefinition {
     Name("Gow3Core")
@@ -240,6 +254,58 @@ public class Gow3CoreModule: Module {
       })
     }.runOnQueue(.main)
 
+    /// What the loader needs in Documents/gow3, and which of it is there.
+    Function("gameFiles") { () -> [String: Any] in
+      let root = Gow3CoreModule.gameRoot
+      try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+      func exists(_ name: String) -> Bool { FileManager.default.fileExists(atPath: root.appendingPathComponent(name).path) }
+      return ["folder": "Documents/gow3", "boot": exists("boot-linked.bin"), "content": exists("content.bin"),
+              "patches": exists("patches.bin"), "eboot": exists("game/eboot.bin"), "sfo": exists("game/sce_sys/param.sfo"),
+              "started": Gow3CoreModule.gameStarted]
+    }
+
+    /// Starts the game CPU-only (no GPU yet): the loader maps the eboot, links it against the runtime
+    /// and runs it through FEXCore until it stops, logging to Documents/gow3/loader.log.
+    AsyncFunction("startGameCpuOnly") { () -> String in
+      guard !Gow3CoreModule.gameStarted else { throw Gow3Error(description: "The game already started; relaunch the app to start it again.") }
+      guard gow3_jit_pool_ready() != 0 else { throw Gow3Error(description: "Enable JIT first.") }
+      let root = Gow3CoreModule.gameRoot
+      let manager = FileManager.default
+      let boot = root.appendingPathComponent("boot-linked.bin").path
+      let game = root.appendingPathComponent("game").path
+      guard manager.fileExists(atPath: boot) else { throw Gow3Error(description: "Missing Documents/gow3/boot-linked.bin (from gow3's out/ folder on the PC).") }
+      guard manager.fileExists(atPath: game + "/eboot.bin") else { throw Gow3Error(description: "Missing Documents/gow3/game/eboot.bin (the dumped game folder).") }
+      let user = root.appendingPathComponent("user").path
+      try? manager.createDirectory(atPath: user, withIntermediateDirectories: true)
+      var args = ["gow3", boot, "--cpu-only", "--app0", game, "--user", user, "--timeout", "0"]
+      for (option, file) in [("--content-profile", "content.bin"), ("--patches", "patches.bin")] {
+        let path = root.appendingPathComponent(file).path
+        if manager.fileExists(atPath: path) { args += [option, path] }
+      }
+      // The guest memory pool is a sparse file: in tmp, which iOS does not back up.
+      setenv("GOW3_POOL_DIR", NSTemporaryDirectory(), 1)
+      let log = Gow3CoreModule.gameLogURL.path
+      try? "--- \(Date()) start: \(args.joined(separator: " "))\n".appendLine(to: log)
+      let cStrings = args.map { strdup($0) }
+      defer { cStrings.forEach { free($0) } }
+      var argv: [UnsafePointer<CChar>?] = cStrings.map { UnsafePointer($0) }
+      argv.append(nil)
+      let code = argv.withUnsafeBufferPointer { gow3_start(Int32(args.count), $0.baseAddress, log) }
+      guard code == 0 else { throw Gow3Error(description: "The loader did not start (\(code)).") }
+      Gow3CoreModule.gameStarted = true
+      return "Loader started; see the game log."
+    }
+
+    /// The last 24 KiB of Documents/gow3/loader.log.
+    Function("readGameLog") { () -> String in
+      guard let data = try? Data(contentsOf: Gow3CoreModule.gameLogURL) else { return "" }
+      return String(decoding: data.suffix(24 * 1024), as: UTF8.self)
+    }
+
+    Function("clearGameLog") {
+      try? FileManager.default.removeItem(at: Gow3CoreModule.gameLogURL)
+    }
+
     AsyncFunction("runSelfTest") { () -> String in
       let path = Gow3CoreModule.logURL.path
       return path.withCString { log in readJson { gow3_selftest(log, $0, $1) } }
@@ -278,6 +344,18 @@ public class Gow3CoreModule: Module {
 
     Function("clearLog") {
       try? FileManager.default.removeItem(at: Gow3CoreModule.logURL)
+    }
+  }
+}
+
+private extension String {
+  func appendLine(to path: String) throws {
+    if let handle = FileHandle(forWritingAtPath: path) {
+      defer { try? handle.close() }
+      try handle.seekToEnd()
+      try handle.write(contentsOf: Data(utf8))
+    } else {
+      try write(toFile: path, atomically: true, encoding: .utf8)
     }
   }
 }

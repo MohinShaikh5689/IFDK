@@ -21,6 +21,10 @@ int gow3_jit_setup(unsigned pool_mb);
 /* Runs the self-tests (memory always, JIT and FEXCore once the pool exists), appending progress
  * lines to `log_path` as it goes, so a crash still leaves the last step on disk. */
 size_t gow3_selftest(const char *log_path, char *out, size_t capacity);
+/* Starts the game loader (native/runtime probe.c) on a thread of its own with the command line
+ * argv[0..argc) (argv[1] is boot-linked.bin); its output is appended to `log_path`. The JIT pool must
+ * be ready. 0 when the thread started. Errors after that end the process, as the PC build does. */
+int gow3_start(int argc, const char *const *argv, const char *log_path);
 
 #ifdef __cplusplus
 }

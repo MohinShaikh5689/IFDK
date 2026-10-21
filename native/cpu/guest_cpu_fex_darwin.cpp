@@ -302,6 +302,10 @@ bool IsFaultSignal(int sig) {
 extern "C" {
 void guest_cpu_init(void* (*map)(size_t size, int prot)) {
     low_map = map;
+    if (ctx) {
+        // Already set up (the self-test ran first in this process): the game reuses the context.
+        return;
+    }
     if (!gow3_jit_pool_ready()) {
         Fatal("the JIT pool is not ready (enable JIT first)");
     }

@@ -37,6 +37,8 @@ export default function App() {
   const [pads, setPads] = useState(listControllers);
   const [builtIn, setBuiltIn] = useState<BuiltIn | null>(null);
   const [pairing, setPairing] = useState<Pairing | null>(null);
+  const [files, setFiles] = useState(() => Gow3Core.gameFiles());
+  const [gameLog, setGameLog] = useState(() => Gow3Core.readGameLog());
 
   const refresh = useCallback(() => {
     setReport(pretty(Gow3Core.deviceReport()));
@@ -44,6 +46,8 @@ export default function App() {
     setPads(listControllers());
     Gow3Core.builtInJitStatus().then(setBuiltIn, () => setBuiltIn(null));
     Gow3Core.pairingState().then(setPairing, () => setPairing(null));
+    setFiles(Gow3Core.gameFiles());
+    setGameLog(Gow3Core.readGameLog());
   }, []);
 
   useEffect(() => {
@@ -52,6 +56,13 @@ export default function App() {
     const sub = AppState.addEventListener('change', (state) => state === 'active' && refresh());
     return () => sub.remove();
   }, [refresh]);
+
+  // While the game runs, follow its log.
+  useEffect(() => {
+    if (!files.started) return;
+    const timer = setInterval(() => setGameLog(Gow3Core.readGameLog()), 1000);
+    return () => clearInterval(timer);
+  }, [files.started]);
 
   const pairingActive = pairing?.phase === 'waiting' || pairing?.phase === 'pin';
   useEffect(() => {
@@ -175,6 +186,32 @@ export default function App() {
           <Button title="Reset disk image" onPress={() => run(() => Gow3Core.resetDeveloperDiskImage())} disabled={busy || !builtIn?.available} />
           <Button title="Forget pairing" onPress={() => Gow3Core.forgetPairing().then(refresh)} disabled={busy || !builtIn?.paired || pairingActive} />
         </View>
+        <Text style={styles.heading}>Game (CPU only, no graphics yet)</Text>
+        <Text style={styles.mono}>
+          {`Files app > On My iPhone > gow3-ios > gow3:\n` +
+            `  boot-linked.bin ${files.boot ? 'ok' : 'MISSING'}, content.bin ${files.content ? 'ok' : 'missing'}, patches.bin ${files.patches ? 'ok' : 'missing'}\n` +
+            `  game/eboot.bin ${files.eboot ? 'ok' : 'MISSING'}, game/sce_sys/param.sfo ${files.sfo ? 'ok' : 'missing'}`}
+        </Text>
+        <View style={styles.row}>
+          <Button
+            title={files.started ? 'Game running' : 'Start game (CPU only)'}
+            onPress={() => run(() => Gow3Core.startGameCpuOnly())}
+            disabled={busy || files.started || !files.boot || !files.eboot}
+          />
+          <Button
+            title="Clear game log"
+            onPress={() => {
+              Gow3Core.clearGameLog();
+              refresh();
+            }}
+            disabled={busy}
+          />
+        </View>
+        {gameLog ? (
+          <Text style={styles.mono} selectable>
+            {gameLog}
+          </Text>
+        ) : null}
         <Text style={styles.heading}>Controllers</Text>
         <Text style={styles.mono} selectable>
           {pads.length ? pads.map((p) => `${p.kind}: ${p.name} (${p.category})${p.haptics ? ', haptics' : ''}${p.light ? ', light' : ''}`).join('\n') : 'none connected (pair in Settings → Bluetooth, then Refresh)'}

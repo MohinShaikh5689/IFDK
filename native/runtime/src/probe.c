@@ -22,15 +22,27 @@
 #include <windows.h>
 #else
 #include <sys/mman.h>
-#include <malloc.h>
 #include <unistd.h>
 #include <signal.h>
-#include <ucontext.h>
 #include <fcntl.h>
 #include <dlfcn.h>
 #include <execinfo.h>
-#include <sys/syscall.h>
 #include <sys/uio.h>
+#ifdef __APPLE__
+#include <sys/ucontext.h>
+#include <mach/mach.h>
+#include <pthread.h>
+#else
+#include <malloc.h>
+#include <ucontext.h>
+#include <sys/syscall.h>
+#endif
+#endif
+#ifdef __APPLE__
+/* iOS apps cannot start processes: the app calls the loader on a thread of its own (gow3_start in
+ * native/runtime/ios/gow3_start.c), with the same arguments the command line would have. */
+#define main gow3_probe_main
+int gow3_probe_main(int argc, char **argv);
 #endif
 
 typedef struct { uint64_t address, size, flags; } Segment;
@@ -78,6 +90,11 @@ static void protect(void *p, size_t size, unsigned flags) {
     else if (flags & 4) mode = PAGE_READONLY;
     if (!VirtualProtect(p, size, mode, &old)) fail("VirtualProtect failed");
     FlushInstructionCache(GetCurrentProcess(), p, size);
+#elif defined(__APPLE__)
+    /* Guest code is only read (translated by FEXCore), and iOS refuses executable pages outside the
+     * JIT pool: an executable segment is mapped readable. */
+    int mode = ((flags & 4) ? PROT_READ : 0) | ((flags & 2) ? PROT_WRITE : 0) | ((flags & 1) ? PROT_READ : 0);
+    if (mprotect(p, size, mode)) fail("mprotect failed");
 #else
     int mode = ((flags & 4) ? PROT_READ : 0) | ((flags & 2) ? PROT_WRITE : 0) | ((flags & 1) ? PROT_EXEC : 0);
     if (mprotect(p, size, mode)) fail("mprotect failed");
@@ -252,7 +269,8 @@ static void fault(int sig, siginfo_t *info, void *context) {
     }
 #endif
     /* GPU page tracking (write-protected guest pages) is resolved first. */
-    if (gpu_enabled && sig == SIGSEGV && gow3gpu_handle_fault(context, info->si_addr)) return;
+    /* Darwin reports writes to write-protected pages as SIGBUS. */
+    if (gpu_enabled && (sig == SIGSEGV || sig == SIGBUS) && gow3gpu_handle_fault(context, info->si_addr)) return;
     /* A speculative guest memory read (runtime_memory.c) failed: resume its recovery point. */
     if ((sig == SIGSEGV || sig == SIGBUS) && runtime_fault_recover) {
         sigjmp_buf *recover = runtime_fault_recover;
@@ -331,8 +349,14 @@ static void dump_frames(ucontext_t *uc) {
         write_hex(line+6,tid); write_hex(line+27,rip); write_hex(line+59,rip-(uintptr_t)image); write_hex(line+90,rip-exe_base);
         { ssize_t written_=write(2,line,sizeof(line)-1); (void)written_; }
         uintptr_t frame[2];
+#ifdef __APPLE__
+        vm_size_t got=0;
+        if (!rbp || vm_read_overwrite(mach_task_self(),rbp,sizeof(frame),(vm_address_t)frame,&got)!=KERN_SUCCESS ||
+            got!=sizeof(frame)) break;
+#else
         struct iovec local={frame,sizeof(frame)}, remote={(void *)rbp,sizeof(frame)};
         if (!rbp || process_vm_readv(getpid(),&local,1,&remote,1,0)!=(ssize_t)sizeof(frame)) break;
+#endif
         if (frame[0]<=rbp) break;
         rbp=frame[0]; rip=frame[1];
     }
@@ -343,6 +367,21 @@ static void watchdog(int sig, siginfo_t *info, void *context) {
     const char head[]="STOP: watchdog timeout; thread stacks:\n";
     { ssize_t written_=write(2,head,sizeof(head)-1); (void)written_; }
     dump_frames(context);
+#ifdef __APPLE__
+    /* Every other thread dumps its own frames (SIGUSR2, thread_dump). */
+    thread_act_array_t threads;
+    mach_msg_type_number_t count=0;
+    mach_port_t self=mach_thread_self();
+    if (task_threads(mach_task_self(),&threads,&count)==KERN_SUCCESS) {
+        for (mach_msg_type_number_t i=0;i<count;++i) {
+            pthread_t thread=threads[i]!=self ? pthread_from_mach_thread_np(threads[i]) : NULL;
+            if (thread) { pthread_kill(thread,SIGUSR2); usleep(20000); }
+            mach_port_deallocate(mach_task_self(),threads[i]);
+        }
+        vm_deallocate(mach_task_self(),(vm_address_t)threads,count*sizeof(*threads));
+    }
+    mach_port_deallocate(mach_task_self(),self);
+#else
     int dir=open("/proc/self/task",O_RDONLY|O_DIRECTORY);
     char buffer[4096];
     long n;
@@ -354,6 +393,7 @@ static void watchdog(int sig, siginfo_t *info, void *context) {
             if (tid>0 && tid!=self) { syscall(SYS_tgkill,getpid(),tid,SIGUSR2); usleep(20000); }
             at+=d->reclen;
         }
+#endif
     usleep(100000);
     _exit(128 + sig);
 }
@@ -599,6 +639,10 @@ void runtime_restart(void) {
     CloseHandle(process.hThread); CloseHandle(process.hProcess);
     /* The new launch waits for this process's GPU device to go away (run.py --after). */
     TerminateProcess(GetCurrentProcess(),0);
+#elif defined(__APPLE__)
+    /* An iOS app cannot start itself again: the player relaunches it (the new patches apply then). */
+    puts("Runtime: restart requested; relaunch the app to apply the change");
+    _exit(0);
 #else
     const char *command = getenv("GOW3_RESTART_COMMAND");
     syscall(SYS_close_range, 3u, ~0u, 0u);
@@ -636,10 +680,13 @@ static int cpu_supported(char *missing, size_t size) {
 int main(int argc, char **argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
 #ifndef _WIN32
+#ifndef __APPLE__
     /* Keep host heap objects handed to the guest (thread handles, TLS) in the
-       non-PIE brk heap, i.e. below 1 TiB: the guest packs pointers into 40 bits. */
+       non-PIE brk heap, i.e. below 1 TiB: the guest packs pointers into 40 bits.
+       (iOS: the malloc zones already sit far below 1 TiB.) */
     mallopt(M_ARENA_MAX,1);
     mallopt(M_MMAP_THRESHOLD,32*1024*1024);
+#endif
     guest_cpu_init(runtime_low_map);
 #endif
     if (argc == 2 && !strcmp(argv[1], "--vulkan-only")) return vulkan_smoke();

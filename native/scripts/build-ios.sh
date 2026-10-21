@@ -19,7 +19,7 @@ cmake -S "$FEX" -B "$OUT" -G Ninja \
   -DENABLE_GDB_SYMBOLS=OFF -DTUNE_CPU=none -DTUNE_ARCH=generic \
   -DCMAKE_DISABLE_FIND_PACKAGE_fmt=ON -DCMAKE_DISABLE_FIND_PACKAGE_unordered_dense=ON \
   -DCMAKE_DISABLE_FIND_PACKAGE_range-v3=ON
-cmake --build "$OUT" --target gow3core JemallocLibs
+cmake --build "$OUT" --target gow3core gow3runtime JemallocLibs
 
 # Every archive in the build tree (FEXCore, FEXCore_Base, CodeEmitter, fmt, xxhash, cephes,
 # SoftFloat, ...), merged into one. JemallocDummy is built from the same source as JemallocLibs,
@@ -29,9 +29,11 @@ find "$OUT" -name '*.a' ! -name 'libJemallocDummy.a' | sort > "$OUT/libs.txt"
 sed 's/^/  /' "$OUT/libs.txt"
 xcrun libtool -static -no_warning_for_no_symbols -o "$DEST/libgow3core_all.a" $(cat "$OUT/libs.txt")
 # Every symbol the C API and FEXCore need must resolve inside the archive (plus libc/libc++).
-nm -gU "$DEST/libgow3core_all.a" 2>/dev/null | grep -q ' T _gow3_selftest$'
-nm -gU "$DEST/libgow3core_all.a" 2>/dev/null | grep -q ' T __ZN7FEXCore9Allocator6mallocEm$'
-nm -gU "$DEST/libgow3core_all.a" 2>/dev/null | grep -q ' T ___clear_cache$'
+# Not `nm | grep -q`: grep exits at the first match and pipefail then fails on nm's SIGPIPE.
+SYMBOLS=$(nm -gU "$DEST/libgow3core_all.a" 2>/dev/null || true)
+for symbol in _gow3_selftest _gow3_start __ZN7FEXCore9Allocator6mallocEm ___clear_cache; do
+  grep -q " T $symbol\$" <<<"$SYMBOLS" || { echo "missing $symbol in libgow3core_all.a" >&2; exit 1; }
+done
 mkdir -p "$DEST/include"
 cp "$ROOT/native/include/gow3core.h" "$DEST/include/"
 ls -la "$DEST"

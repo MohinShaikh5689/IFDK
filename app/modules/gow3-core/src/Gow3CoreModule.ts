@@ -23,6 +23,13 @@ declare class Gow3CoreModule extends NativeModule<{}> {
   resetDeveloperDiskImage(): Promise<string>;
   /** The app's helper attaches the debugger, then the JIT pool is created and it detaches. Resolves 0 on success. */
   enableJitBuiltIn(poolMb: number): Promise<number>;
+  /** Documents/gow3: which of the loader's files are there (from the PC's gow3 out/ folder, and game/). */
+  gameFiles(): { folder: string; boot: boolean; content: boolean; patches: boolean; eboot: boolean; sfo: boolean; started: boolean };
+  /** Runs the game CPU-only (no GPU yet) through FEXCore; output goes to Documents/gow3/loader.log. */
+  startGameCpuOnly(): Promise<string>;
+  /** The last 24 KiB of the loader log. */
+  readGameLog(): string;
+  clearGameLog(): void;
   /** JSON results of the memory, JIT and FEXCore self-tests. */
   runSelfTest(): Promise<string>;
   /** Connected game controllers (GameController framework). */
