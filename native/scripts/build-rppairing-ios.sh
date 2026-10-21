@@ -14,5 +14,7 @@ cargo build --release --locked --target "$TARGET"
 DEST="$ROOT/app/modules/gow3-core/ios/lib"
 mkdir -p "$DEST"
 cp "target/$TARGET/release/libgow3_rppairing.a" "$DEST/libgow3_rppairing.a"
-nm -gU "$DEST/libgow3_rppairing.a" 2>/dev/null | grep -q ' T _gow3_rppairing_accept$'
+# Not `nm | grep -q`: grep exits at the first match and pipefail then fails on nm's SIGPIPE.
+SYMBOLS=$(nm -gU "$DEST/libgow3_rppairing.a" 2>/dev/null || true)
+grep -q ' T _gow3_rppairing_accept$' <<<"$SYMBOLS"
 echo "-> $DEST/libgow3_rppairing.a"
