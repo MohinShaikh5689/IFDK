@@ -5,8 +5,12 @@ add_library(gow3core STATIC
   "${GOW3_NATIVE}/cpu/guest_cpu_fex_darwin.cpp"
   "${GOW3_NATIVE}/cpu/host_features_darwin.cpp"
   "${GOW3_NATIVE}/cpu/host_call_arm64.S"
-  "${GOW3_NATIVE}/selftest/selftest.cpp")
+  "${GOW3_NATIVE}/selftest/selftest.cpp"
+  "${GOW3_NATIVE}/gpu/screen_test.c")
 target_include_directories(gow3core PRIVATE "${GOW3_NATIVE}/include" "${GOW3_NATIVE}/cpu" "${CMAKE_BINARY_DIR}/generated")
+# MoltenVK's Vulkan headers (scripts/build-ios.sh downloads MoltenVK and passes the path).
+set_source_files_properties("${GOW3_NATIVE}/gpu/screen_test.c" PROPERTIES
+  INCLUDE_DIRECTORIES "${GOW3_MOLTENVK_INCLUDE}")
 
 # The gow3 runtime and loader (native/runtime, C): CPU-only for now, with stubs for the GPU library and
 # the SDL3/FFmpeg parts (native/runtime/ios). gow3_start (ios/gow3_start.c) runs the loader on a thread.

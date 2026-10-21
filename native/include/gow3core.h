@@ -27,6 +27,10 @@ size_t gow3_selftest(const char *log_path, char *out, size_t capacity);
 int gow3_start(int argc, const char *const *argv, const char *log_path);
 /* Has every thread write its guest and host frames to the log (for a hang). Threads signalled, or -1. */
 int gow3_dump_threads(void);
+/* MoltenVK on the screen: a Vulkan swapchain on `metal_layer` (a CAMetalLayer, width x height pixels)
+ * cleared to a cycling colour for `seconds`. JSON: device, driver, frames and fps, and which of the
+ * extensions and features shadPS4's video core uses the device lacks. */
+size_t gow3_gpu_screen_test(void *metal_layer, uint32_t width, uint32_t height, unsigned seconds, char *out, size_t capacity);
 
 #ifdef __cplusplus
 }

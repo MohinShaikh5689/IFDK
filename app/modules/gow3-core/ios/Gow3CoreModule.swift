@@ -19,6 +19,9 @@ private func gow3_start(_ argc: Int32, _ argv: UnsafePointer<UnsafePointer<CChar
 private func gow3_dump_threads() -> Int32
 @_silgen_name("gow3_jit_pool_ready")
 private func gow3_jit_pool_ready() -> Int32
+@_silgen_name("gow3_gpu_screen_test")
+private func gow3_gpu_screen_test(_ layer: UnsafeMutableRawPointer?, _ width: UInt32, _ height: UInt32, _ seconds: UInt32,
+                                  _ out: UnsafeMutablePointer<CChar>?, _ capacity: Int) -> Int
 @_silgen_name("gow3_selftest")
 private func gow3_selftest(_ logPath: UnsafePointer<CChar>?, _ out: UnsafeMutablePointer<CChar>?, _ capacity: Int) -> Int
 
@@ -312,6 +315,28 @@ public class Gow3CoreModule: Module {
     Function("clearGameLog") {
       try? FileManager.default.removeItem(at: Gow3CoreModule.gameLogURL)
     }
+
+    /// MoltenVK on the screen: the fullscreen Metal view is cleared to a cycling colour for `seconds`,
+    /// then closed. Resolves with the JSON report (device, fps, what shadPS4 would lack).
+    AsyncFunction("gpuScreenTest") { (seconds: Int, promise: Promise) in
+      Gow3GameViewController.present { controller in
+        guard let controller else {
+          promise.reject(Gow3Error(description: "No window to present the Metal view in."))
+          return
+        }
+        let layer = controller.metalView.metalLayer
+        let size = layer.drawableSize
+        let pointer = Unmanaged.passUnretained(layer).toOpaque()
+        DispatchQueue.global(qos: .userInteractive).async {
+          let json = readJson {
+            gow3_gpu_screen_test(pointer, UInt32(size.width), UInt32(size.height), UInt32(max(1, seconds)), $0, $1)
+          }
+          DispatchQueue.main.async {
+            controller.dismiss(animated: false) { promise.resolve(json) }
+          }
+        }
+      }
+    }.runOnQueue(.main)
 
     AsyncFunction("runSelfTest") { () -> String in
       let path = Gow3CoreModule.logURL.path

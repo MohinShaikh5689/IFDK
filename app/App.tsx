@@ -39,6 +39,7 @@ export default function App() {
   const [pairing, setPairing] = useState<Pairing | null>(null);
   const [files, setFiles] = useState(() => Gow3Core.gameFiles());
   const [gameLog, setGameLog] = useState(() => Gow3Core.readGameLog());
+  const [gpuReport, setGpuReport] = useState('');
 
   const refresh = useCallback(() => {
     setReport(pretty(Gow3Core.deviceReport()));
@@ -217,6 +218,26 @@ export default function App() {
         {gameLog ? (
           <Text style={styles.mono} selectable>
             {gameLog}
+          </Text>
+        ) : null}
+        <Text style={styles.heading}>GPU (MoltenVK)</Text>
+        <Text style={styles.mono}>Clears the screen to a cycling colour for 5 s, then lists what shadPS4 would lack.</Text>
+        <View style={styles.row}>
+          <Button
+            title="GPU screen test"
+            onPress={() =>
+              run(async () => {
+                const json = await Gow3Core.gpuScreenTest(5);
+                setGpuReport(pretty(json));
+                return JSON.parse(json).ok ? 'GPU screen test passed' : 'GPU screen test failed (see the report)';
+              })
+            }
+            disabled={busy}
+          />
+        </View>
+        {gpuReport ? (
+          <Text style={styles.mono} selectable>
+            {gpuReport}
           </Text>
         ) : null}
         <Text style={styles.heading}>Controllers</Text>

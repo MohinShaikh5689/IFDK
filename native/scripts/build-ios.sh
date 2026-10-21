@@ -18,11 +18,26 @@ for patch in "$ROOT"/native/patches/fex/*.patch; do
   fi
 done
 
+# MoltenVK (Apache-2.0): Vulkan on Metal, the static iOS library and its Vulkan headers. It goes under
+# $OUT, so the archive merge below picks up libMoltenVK.a with the rest.
+MOLTENVK_VERSION=v1.4.2
+MOLTENVK_SHA256=b5d947b1660e6e9fed40b9cd2387e160aaab9e80b775c0cef7e14059405178c1
+MOLTENVK="$OUT/moltenvk"
+if [ ! -f "$MOLTENVK/MoltenVK/MoltenVK/static/MoltenVK.xcframework/ios-arm64/libMoltenVK.a" ]; then
+  mkdir -p "$MOLTENVK"
+  curl -fsSL -o "$MOLTENVK/MoltenVK-ios.tar" \
+    "https://github.com/KhronosGroup/MoltenVK/releases/download/$MOLTENVK_VERSION/MoltenVK-ios.tar"
+  echo "$MOLTENVK_SHA256  $MOLTENVK/MoltenVK-ios.tar" | shasum -a 256 -c -
+  tar -xf "$MOLTENVK/MoltenVK-ios.tar" -C "$MOLTENVK"
+  rm "$MOLTENVK/MoltenVK-ios.tar"
+fi
+
 cmake -S "$FEX" -B "$OUT" -G Ninja \
   -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_SYSTEM_PROCESSOR=arm64 -DCMAKE_OSX_ARCHITECTURES=arm64 \
   -DCMAKE_OSX_SYSROOT=iphoneos \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PROJECT_FEX_INCLUDE="$ROOT/native/cmake/fex_project.cmake" \
+  -DGOW3_MOLTENVK_INCLUDE="$MOLTENVK/MoltenVK/MoltenVK/include" \
   -DBUILD_TESTING=OFF -DBUILD_THUNKS=OFF -DBUILD_FEXCONFIG=OFF -DBUILD_FEX_LINUX_TESTS=OFF \
   -DENABLE_FEX_ALLOCATOR=OFF -DENABLE_JEMALLOC_GLIBC_ALLOC=OFF -DENABLE_ASSERTIONS=OFF \
   -DENABLE_CCACHE=ON -DENABLE_LTO=OFF -DENABLE_ZYDIS=OFF -DENABLE_OFFLINE_TELEMETRY=OFF \
@@ -41,7 +56,8 @@ xcrun libtool -static -no_warning_for_no_symbols -o "$DEST/libgow3core_all.a" $(
 # Every symbol the C API and FEXCore need must resolve inside the archive (plus libc/libc++).
 # Not `nm | grep -q`: grep exits at the first match and pipefail then fails on nm's SIGPIPE.
 SYMBOLS=$(nm -gU "$DEST/libgow3core_all.a" 2>/dev/null || true)
-for symbol in _gow3_selftest _gow3_start __ZN7FEXCore9Allocator6mallocEm ___clear_cache; do
+for symbol in _gow3_selftest _gow3_start _gow3_gpu_screen_test _vkCreateInstance _vkCreateMetalSurfaceEXT \
+    __ZN7FEXCore9Allocator6mallocEm ___clear_cache; do
   grep -q " T $symbol\$" <<<"$SYMBOLS" || { echo "missing $symbol in libgow3core_all.a" >&2; exit 1; }
 done
 mkdir -p "$DEST/include"

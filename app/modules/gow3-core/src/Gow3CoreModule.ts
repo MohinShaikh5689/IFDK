@@ -32,6 +32,8 @@ declare class Gow3CoreModule extends NativeModule<{}> {
   clearGameLog(): void;
   /** For a hang: every thread writes its guest and host frames to the game log. Threads signalled. */
   dumpGameThreads(): Promise<number>;
+  /** MoltenVK clears a fullscreen Metal view for `seconds`; JSON: device, fps, what shadPS4 would lack. */
+  gpuScreenTest(seconds: number): Promise<string>;
   /** JSON results of the memory, JIT and FEXCore self-tests. */
   runSelfTest(): Promise<string>;
   /** Connected game controllers (GameController framework). */

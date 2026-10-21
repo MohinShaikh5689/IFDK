@@ -43,7 +43,7 @@ jobs:
         run: |
           fex=$(git rev-parse HEAD:native/third_party/FEX)
           xcode=$(xcodebuild -version | shasum | cut -c1-12)
-          echo "key=native-${{ runner.os }}-$fex-$xcode-${{ hashFiles('native/cmake/**', 'native/cpu/**', 'native/jit/**', 'native/selftest/**', 'native/include/**', 'native/runtime/**', 'native/patches/**', 'native/scripts/build-ios.sh') }}" >> "$GITHUB_OUTPUT"
+          echo "key=native-${{ runner.os }}-$fex-$xcode-${{ hashFiles('native/cmake/**', 'native/cpu/**', 'native/jit/**', 'native/gpu/**', 'native/selftest/**', 'native/include/**', 'native/runtime/**', 'native/patches/**', 'native/scripts/build-ios.sh') }}" >> "$GITHUB_OUTPUT"
 
       - name: Restore the native core
         id: native-cache
