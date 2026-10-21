@@ -6,6 +6,8 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 FEX="$ROOT/native/third_party/FEX"
 OUT="${1:-$ROOT/build/native-ios}"
+mkdir -p "$OUT"
+OUT=$(cd "$OUT" && pwd) # absolute: CMake rejects relative include paths (the MoltenVK headers)
 DEST="$ROOT/app/modules/gow3-core/ios/lib"
 
 # Our fixes to the FEX fork (a submodule we cannot push to), applied once to its checkout.
