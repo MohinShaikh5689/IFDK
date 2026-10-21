@@ -12,4 +12,4 @@ $CC -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -Isrc src/compat_darwin.c tes
   -o "$OUT/test_compat_darwin"
 "$OUT/test_compat_darwin"
 # The upstream (non-window) layout still builds.
-$CC -std=c11 -O2 -Wall -Wextra -Werror -pthread -Isrc -c src/runtime_memory.c -o "$OUT/runtime_memory_upstream.o"
+$CC -std=c11 -O2 -Wall -Wextra -Werror -pthread -I. -Isrc -c src/runtime_memory.c -o "$OUT/runtime_memory_upstream.o"

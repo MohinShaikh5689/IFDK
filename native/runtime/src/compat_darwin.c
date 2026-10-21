@@ -4,6 +4,10 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <sys/resource.h>
+#ifdef __APPLE__
+#include <mach/mach.h>
+#endif
 
 static int64_t ns_until(clockid_t clock, const struct timespec *deadline) {
     struct timespec now;
@@ -67,4 +71,23 @@ uint64_t compat_gettid(void) {
 #else
     return (uint64_t)gettid();
 #endif
+}
+
+#undef getrusage
+int compat_getrusage(int who, struct rusage *usage) {
+#ifdef __APPLE__
+    if (who==1) {
+        thread_basic_info_data_t info;
+        mach_msg_type_number_t count=THREAD_BASIC_INFO_COUNT;
+        mach_port_t thread=mach_thread_self();
+        kern_return_t kr=thread_info(thread,THREAD_BASIC_INFO,(thread_info_t)&info,&count);
+        mach_port_deallocate(mach_task_self(),thread);
+        if (kr!=KERN_SUCCESS) { errno=EINVAL; return -1; }
+        *usage=(struct rusage){0};
+        usage->ru_utime=(struct timeval){info.user_time.seconds,info.user_time.microseconds};
+        usage->ru_stime=(struct timeval){info.system_time.seconds,info.system_time.microseconds};
+        return 0;
+    }
+#endif
+    return getrusage(who,usage);
 }

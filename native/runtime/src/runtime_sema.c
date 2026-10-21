@@ -34,9 +34,9 @@ static Sema *find(uint32_t id) {
 static void host_check(int e) {
     if (e) { fprintf(stderr,"STOP: semaphore host error %d\n",e); exit(21); }
 }
-/* Waits use this clock for their deadlines. winpthreads condition variables accept only
+/* Waits use this clock for their deadlines. winpthreads and Darwin condition variables accept only
  * CLOCK_REALTIME (pthread_condattr_setclock(CLOCK_MONOTONIC) fails with EINVAL). */
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__APPLE__)
 #define WAIT_CLOCK CLOCK_REALTIME
 #else
 #define WAIT_CLOCK CLOCK_MONOTONIC

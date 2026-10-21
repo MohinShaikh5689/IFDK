@@ -2,3 +2,6 @@
 	path = native/third_party/FEX
 	url = https://github.com/willfaust/FEX.git
 	branch = ios-port-2607
+[submodule "native/runtime/third_party/LibAtrac9"]
+	path = native/runtime/third_party/LibAtrac9
+	url = https://github.com/Thealexbarney/LibAtrac9.git

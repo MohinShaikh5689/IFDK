@@ -20,6 +20,9 @@ int compat_clock_nanosleep(clockid_t clock, int flags, const struct timespec *re
 ssize_t compat_getrandom(void *buffer, size_t size, unsigned flags);
 /* The calling thread's system-wide id (gettid on Linux). */
 uint64_t compat_gettid(void);
+/* getrusage that also answers RUSAGE_THREAD (1), which Darwin lacks, from the Mach thread times. */
+struct rusage;
+int compat_getrusage(int who, struct rusage *usage);
 
 #ifdef __APPLE__
 #define pthread_mutex_timedlock compat_mutex_timedlock
@@ -34,6 +37,19 @@ uint64_t compat_gettid(void);
 #ifndef CLOCK_REALTIME_COARSE
 #define CLOCK_REALTIME_COARSE CLOCK_REALTIME
 #endif
+#include <errno.h>
+#include <sys/stat.h>
+#include <sys/resource.h>
+/* Linux struct stat timestamp names. */
+#define st_atim st_atimespec
+#define st_mtim st_mtimespec
+#define st_ctim st_ctimespec
+#define RUSAGE_THREAD 1
+#define getrusage compat_getrusage
+/* Darwin condition variables wait on CLOCK_REALTIME only. */
+static inline int pthread_condattr_setclock(pthread_condattr_t *attr, clockid_t clock) {
+    (void)attr; return clock==CLOCK_REALTIME ? 0 : EINVAL;
+}
 /* Darwin names only the calling thread, which is the only one the runtime names. */
 static inline int compat_setname(pthread_t thread, const char *name) { (void)thread; return pthread_setname_np(name); }
 #define pthread_setname_np(thread, name) compat_setname(thread, name)

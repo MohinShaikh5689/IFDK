@@ -12,7 +12,7 @@ for source in src/runtime*.c src/compat_darwin.c; do
   name=$(basename "$source")
   [[ $SKIP == *" $name "* ]] && continue
   if xcrun -sdk iphoneos clang -target arm64-apple-ios17.0 -std=c11 -O2 -Wall -Wextra -Werror -pthread \
-       -Isrc -c "$source" -o "$OUT/${name%.c}.o" 2> "$OUT/${name%.c}.log"; then
+       -I. -Isrc -c "$source" -o "$OUT/${name%.c}.o" 2> "$OUT/${name%.c}.log"; then
     echo "ok      $name"
   else
     echo "FAILED  $name"; sed 's/^/        /' "$OUT/${name%.c}.log" | head -40

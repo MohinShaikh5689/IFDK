@@ -26,4 +26,6 @@ jobs:
         with:
           xcode-version: latest-stable
       - name: Compile the runtime for iOS arm64
-        run: native/runtime/build-ios-check.sh
+        run: |
+          git submodule update --init --depth 1 native/runtime/third_party/LibAtrac9
+          native/runtime/build-ios-check.sh
