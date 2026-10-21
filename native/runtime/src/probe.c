@@ -32,6 +32,9 @@
 #include <sys/ucontext.h>
 #include <mach/mach.h>
 #include <pthread.h>
+/* mach.h's page macros would replace this file's own round_page. */
+#undef round_page
+#undef trunc_page
 #else
 #include <malloc.h>
 #include <ucontext.h>
