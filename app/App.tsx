@@ -1,10 +1,13 @@
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import Gow3Core from './modules/gow3-core/src/Gow3CoreModule';
 
 const POOL_MB = 256;
+
+type Pairing = Awaited<ReturnType<typeof Gow3Core.pairingState>>;
+type BuiltIn = Awaited<ReturnType<typeof Gow3Core.builtInJitStatus>>;
 
 // controllers() is new in the native build after 4ed13b6; older installed IPAs lack it.
 const listControllers = () => (typeof Gow3Core.controllers === 'function' ? Gow3Core.controllers() : []);
@@ -27,35 +30,75 @@ function Button({ title, onPress, disabled }: { title: string; onPress: () => vo
 
 export default function App() {
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState('Milestone 2: JIT + FEXCore self-test');
+  const [status, setStatus] = useState('JIT + FEXCore self-test');
   const [report, setReport] = useState(() => pretty(Gow3Core.deviceReport()));
   const [result, setResult] = useState('');
   const [log, setLog] = useState(() => Gow3Core.readLog());
   const [pads, setPads] = useState(listControllers);
+  const [builtIn, setBuiltIn] = useState<BuiltIn | null>(null);
+  const [pairing, setPairing] = useState<Pairing | null>(null);
 
   const refresh = useCallback(() => {
     setReport(pretty(Gow3Core.deviceReport()));
     setLog(Gow3Core.readLog());
     setPads(listControllers());
+    Gow3Core.builtInJitStatus().then(setBuiltIn, () => setBuiltIn(null));
+    Gow3Core.pairingState().then(setPairing, () => setPairing(null));
   }, []);
 
-  const enableJit = useCallback(async () => {
-    setBusy(true);
-    try {
-      if (!Gow3Core.isDebuggerAttached() && !(await Gow3Core.isStikDebugInstalled())) {
-        setStatus('StikDebug is not installed. Install it, import your pairing file and connect LocalDevVPN.');
-        return;
-      }
-      setStatus('Waiting for StikDebug to attach…');
-      const code = await Gow3Core.enableJit(POOL_MB);
-      setStatus(code === 0 ? `JIT pool ready (${POOL_MB} MiB)` : `JIT pool failed: ${code}`);
-    } catch (e) {
-      setStatus(`JIT: ${String(e)}`);
-    } finally {
-      refresh();
-      setBusy(false);
-    }
+  useEffect(() => {
+    refresh();
+    // Pairing happens in Settings: refresh when the app comes back.
+    const sub = AppState.addEventListener('change', (state) => state === 'active' && refresh());
+    return () => sub.remove();
   }, [refresh]);
+
+  const pairingActive = pairing?.phase === 'waiting' || pairing?.phase === 'pin';
+  useEffect(() => {
+    if (!pairingActive) return;
+    const timer = setInterval(() => {
+      Gow3Core.pairingState().then((p) => {
+        setPairing(p);
+        if (p.phase === 'paired') refresh();
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [pairingActive, refresh]);
+
+  const run = useCallback(
+    async (what: () => Promise<string>) => {
+      setBusy(true);
+      try {
+        setStatus(await what());
+      } catch (e) {
+        setStatus(String(e));
+      } finally {
+        refresh();
+        setBusy(false);
+      }
+    },
+    [refresh]
+  );
+
+  const enableJit = useCallback(
+    () =>
+      run(async () => {
+        const ready = (code: number) => (code === 0 ? `JIT pool ready (${POOL_MB} MiB)` : `JIT pool failed: ${code}`);
+        const status = await Gow3Core.builtInJitStatus();
+        if (Gow3Core.isDebuggerAttached() || (status.available && status.paired)) {
+          setStatus('Attaching the built-in debugger…');
+          return ready(await Gow3Core.enableJitBuiltIn(POOL_MB));
+        }
+        if (await Gow3Core.isStikDebugInstalled()) {
+          setStatus('Waiting for StikDebug to attach…');
+          return ready(await Gow3Core.enableJit(POOL_MB));
+        }
+        return status.available
+          ? 'Pair this iPhone first (Pair in app, below), and connect LocalDevVPN.'
+          : `Built-in JIT unavailable: ${status.reason}`;
+      }),
+    [run]
+  );
 
   const runSelfTest = useCallback(async () => {
     setBusy(true);
@@ -91,6 +134,47 @@ export default function App() {
             disabled={busy}
           />
         </View>
+        <Text style={styles.heading}>JIT (built in)</Text>
+        <Text style={styles.mono}>
+          {builtIn
+            ? builtIn.available
+              ? builtIn.paired
+                ? 'Paired. Connect LocalDevVPN, then Check setup (first time) and Enable JIT.'
+                : builtIn.pairingSupported
+                  ? 'Not paired. Tap Pair in app, then go to Settings > Privacy & Security > Developer Mode and tap Pair with gow3-ios.'
+                  : 'Not paired. In-app pairing needs iOS 27.'
+              : builtIn.reason
+            : '…'}
+        </Text>
+        {pairing && pairing.phase !== 'idle' ? (
+          <View style={styles.pairing}>
+            {pairing.phase === 'pin' ? <Text style={styles.pin} selectable>{pairing.pin}</Text> : null}
+            <Text style={styles.mono}>{pairing.message}</Text>
+            {pairingActive && pairing.backgroundLimited ? (
+              <Text style={styles.warn}>iOS only lets this install wait about 30 s in the background: go to Settings straight away.</Text>
+            ) : null}
+          </View>
+        ) : null}
+        <View style={styles.row}>
+          {pairingActive ? (
+            <Button title="Cancel pairing" onPress={() => Gow3Core.cancelPairing().then(refresh)} />
+          ) : (
+            <Button
+              title={builtIn?.paired ? 'Pair again' : 'Pair in app'}
+              onPress={() => Gow3Core.startPairing().then(refresh)}
+              disabled={busy || !builtIn?.available || !builtIn?.pairingSupported}
+            />
+          )}
+          <Button
+            title="Check setup"
+            onPress={() => run(async () => (setStatus('Checking LocalDevVPN and the Developer Disk Image…'), await Gow3Core.prepareBuiltInJit()))}
+            disabled={busy || !builtIn?.paired || pairingActive}
+          />
+        </View>
+        <View style={styles.row}>
+          <Button title="Reset disk image" onPress={() => run(() => Gow3Core.resetDeveloperDiskImage())} disabled={busy || !builtIn?.available} />
+          <Button title="Forget pairing" onPress={() => Gow3Core.forgetPairing().then(refresh)} disabled={busy || !builtIn?.paired || pairingActive} />
+        </View>
         <Text style={styles.heading}>Controllers</Text>
         <Text style={styles.mono} selectable>
           {pads.length ? pads.map((p) => `${p.kind}: ${p.name} (${p.category})${p.haptics ? ', haptics' : ''}${p.light ? ', light' : ''}`).join('\n') : 'none connected (pair in Settings → Bluetooth, then Refresh)'}
@@ -122,4 +206,7 @@ const styles = StyleSheet.create({
   buttonText: { color: '#fff', fontWeight: '600' },
   heading: { color: '#aaa', fontSize: 13, fontWeight: '600', marginTop: 8, textTransform: 'uppercase' },
   mono: { color: '#ddd', fontFamily: 'Menlo', fontSize: 11 },
+  pairing: { gap: 6, padding: 12, borderRadius: 10, backgroundColor: '#1d1d1d' },
+  pin: { color: '#fff', fontFamily: 'Menlo', fontSize: 40, fontWeight: '700', letterSpacing: 6, textAlign: 'center' },
+  warn: { color: '#f5a142', fontSize: 12 },
 });

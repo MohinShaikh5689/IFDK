@@ -64,6 +64,9 @@ Expo (React Native) app shell: launcher, dump import via Files app, settings, JI
 - The build injects `gow3core` into FEX's own CMake (`CMAKE_PROJECT_FEX_INCLUDE`), then `libtool -static` merges all archives
   into `app/modules/gow3-core/ios/lib/libgow3core_all.a`, which the podspec vendors.
 - Swift reaches the C API (`native/include/gow3core.h`) through `@_silgen_name`, without a bridging header.
+- Built-in JIT (docs/JIT.md): `native/jit-helper` is a classic app extension linking StikJIT (fetched by `native/scripts/fetch-stikjit.sh`,
+  pinned by SHA-256), built with `swiftc` and put into the .app by `native/scripts/build-jit-helper.sh` after xcodebuild.
+  `native/rppairing` (Rust, from Madeira) does iOS 27 in-app pairing and is vendored as `libgow3_rppairing.a`.
 4. Build the gow3 runtime and loader for iOS, testing on Linux ARM64 first.
 5. Get MoltenVK rendering with shadPS4's video core, then boot GoW3.
 6. Tune memory to fit 8 GB, and tune performance and thermals.

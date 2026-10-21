@@ -43,7 +43,7 @@ jobs:
         run: |
           fex=$(git rev-parse HEAD:native/third_party/FEX)
           xcode=$(xcodebuild -version | shasum | cut -c1-12)
-          echo "key=native-${{ runner.os }}-$fex-$xcode-${{ hashFiles('native/cmake/**', 'native/cpu/**', 'native/jit/**', 'native/selftest/**', 'native/include/**', 'native/scripts/**') }}" >> "$GITHUB_OUTPUT"
+          echo "key=native-${{ runner.os }}-$fex-$xcode-${{ hashFiles('native/cmake/**', 'native/cpu/**', 'native/jit/**', 'native/selftest/**', 'native/include/**', 'native/scripts/build-ios.sh') }}" >> "$GITHUB_OUTPUT"
 
       - name: Restore the native core
         id: native-cache
@@ -79,6 +79,18 @@ jobs:
         if: steps.native-cache.outputs.cache-hit != 'true'
         run: native/scripts/build-ios.sh build/native-ios
 
+      - name: Cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            native/rppairing/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('native/rppairing/Cargo.lock', 'native/rppairing/src/**') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Pairing library (Rust, on-device pairing for the built-in JIT)
+        run: native/scripts/build-rppairing-ios.sh
+
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -113,10 +125,16 @@ jobs:
           test -f "../../build/xcode/Build/Products/$CONFIGURATION-iphoneos/gow3ios.app/gow3ios"
           ccache --show-stats || true
 
-      - name: Package the IPA (ad-hoc signed with the app's entitlements; SideStore re-signs it)
+      - name: JIT helper extension (StikJIT)
+        run: |
+          native/scripts/fetch-stikjit.sh build/stikjit
+          native/scripts/build-jit-helper.sh build/stikjit "build/xcode/Build/Products/$CONFIGURATION-iphoneos/gow3ios.app"
+
+      - name: Package the IPA (ad-hoc signed with the app's entitlements; the sideloader re-signs it)
         run: |
           APP="build/xcode/Build/Products/$CONFIGURATION-iphoneos/gow3ios.app"
           find "$APP" \( -name '*.framework' -o -name '*.dylib' \) -prune -print0 | xargs -0 -n1 codesign -f -s -
+          find "$APP/PlugIns" -name '*.appex' -prune -print0 | xargs -0 -n1 codesign -f -s -
           codesign -f -s - --entitlements app/ios/gow3ios/gow3ios.entitlements "$APP"
           codesign -d --entitlements - "$APP"
           mkdir -p build/ipa/Payload

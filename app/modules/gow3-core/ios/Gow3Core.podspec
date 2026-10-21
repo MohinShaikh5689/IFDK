@@ -9,6 +9,7 @@ Pod::Spec.new do |s|
   s.platforms      = { :ios => '17.0' }
   s.source         = { git: '' }
   s.static_framework = true
+  s.swift_version  = '5.9'
 
   s.dependency 'ExpoModulesCore'
 
@@ -17,9 +18,12 @@ Pod::Spec.new do |s|
   }
 
   s.source_files = '*.swift'
-  # Built by native/scripts/build-ios.sh before `expo prebuild` (CI does this).
-  s.vendored_libraries = 'lib/libgow3core_all.a'
+  # Built by native/scripts/build-ios.sh and build-rppairing-ios.sh before `expo prebuild` (CI does this).
+  s.vendored_libraries = 'lib/libgow3core_all.a', 'lib/libgow3_rppairing.a'
   s.libraries = 'c++'
-  # StikJIT's universal script (MPL-2.0), sent to StikDebug when enabling JIT.
-  s.resource_bundles = { 'Gow3Core' => ['jit/universal.js', 'jit/LICENSE-StikJIT-MPL-2.0.txt'] }
+  # The Rust pairing library draws randomness from Security.
+  s.frameworks = 'Security'
+  # StikJIT's universal script (MPL-2.0), sent to StikDebug when enabling JIT, and the licences of
+  # StikJIT and idevice (MIT), which the JIT helper and the pairing library contain.
+  s.resource_bundles = { 'Gow3Core' => ['jit/universal.js', 'jit/LICENSE-StikJIT-MPL-2.0.txt', 'jit/LICENSE-idevice-MIT.txt'] }
 end
