@@ -86,6 +86,17 @@ Device: iPhone 17, `iPhone18,3`, iOS build 24A435, 7672 MB RAM, free Apple ID, d
 - `mach_memory_entry_ownership(..., NO_FOOTPRINT)` fails (KERN_NO_ACCESS with the self owner on the first build, KERN_INVALID_ARGUMENT (4) with self and TASK_NULL on later ones) and the memory still counts. Dead end.
 - **File-backed MAP_SHARED memory stays out of phys_footprint**: 512 MB of dirty pages in a mapped sandbox file added 0 MB, and two views of the file alias.
   This is the way past the jetsam limit for the direct pool (replaces memfd; pages may be written back to flash under pressure).
+- **How Madeira gets past the limit** (checked 2026-10-21 in willfaust/Madeira). It uses two things, and does not lift the cap itself:
+  1. It ships `com.apple.developer.kernel.increased-memory-limit`, and its code calls the result a "4096MB jetsam ceiling".
+     Our 3375 MB was measured without that entitlement. App 0.1.1 adds it. Re-run the self-test to see whether SideStore keeps it.
+  2. A file-backed "swap tier" (ml1077, in Wine's `virtual_ios.c`; `swap-mb = 3072` in its example config).
+     Guest commits go to MAP_SHARED mappings of a sparse `tmp/madeira-swap.bin`. The file is created with `NSFileProtectionNone`,
+     so the mapping still works while the phone is locked. Decommit punches holes with `fcntl(F_PUNCHHOLE)`, and `swap-mb` is a soft cap on disk use.
+     The "broad" mode backs every reservation of 4 MB or more, and Madeira says the device-verified case is Metro 2033 Redux.
+     Its canaries found two costs. Dirtying a lot at once gets throttled by writeback (ml1080), and a first touch can stall behind writeback of the same file (ml1079), so separate files help.
+     Its churn filter keeps short-lived block sizes anonymous.
+  Madeira's NO_FOOTPRINT ownership calls fail the same way ours do (kr=4), which confirms that route is a dead end.
+  Plan for GoW3: put the 5 GB direct pool in file-backed memory (one or more files in tmp) and keep anonymous memory for the JIT pool, FEX, MoltenVK and heaps, under the ~4 GB ceiling.
 - **Free address space is only about 6-7 GB.** iOS itself reserves `0x1000000000+384G` (tag 31, prot 0) and `0x2e6000000+51G` (tag 32), plus 1 GB tag-32 regions.
   Same on a direct install, so it is not LiveContainer. ANYWHERE reservations: 4 GB ok (at `0x7000000000`, inside a 6 GB hole), 8 GB and larger fail.
   Fixed reservations at 32 GiB, 64 GiB and 256 GiB fail (KERN_NO_SPACE). The PS4 memory windows must be relocated and kept small.
