@@ -364,7 +364,38 @@ static void dump_frames(ucontext_t *uc) {
         rbp=frame[0]; rip=frame[1];
     }
 }
-static void thread_dump(int sig, siginfo_t *info, void *context) { (void)sig; (void)info; dump_frames(context); }
+#ifdef __APPLE__
+/* iOS: the thread's name and its host call chain by symbol, since there is no gdb to ask
+ * (gow3_dump_threads, the app's Dump threads button, sends SIGUSR2 to every thread). */
+static void host_backtrace(void *context) {
+    char line[512], name[64]="";
+    pthread_getname_np(pthread_self(),name,sizeof(name));
+    Dl_info where;
+    uintptr_t pc=guest_cpu_host_pc(context);
+    if (dladdr((void *)pc,&where) && where.dli_sname)
+        snprintf(line,sizeof(line),"  thread '%s' tid=%llu host pc in %s+0x%lx\n",name,(unsigned long long)gettid(),
+                 where.dli_sname,(unsigned long)(pc-(uintptr_t)where.dli_saddr));
+    else
+        snprintf(line,sizeof(line),"  thread '%s' tid=%llu host pc %p (no symbol: JIT code or stripped)\n",name,(unsigned long long)gettid(),(void *)pc);
+    { ssize_t written_=write(2,line,strlen(line)); (void)written_; }
+    void *frames[24];
+    int depth=backtrace(frames,24);
+    for (int i=2;i<depth;++i) {
+        if (dladdr(frames[i],&where) && where.dli_sname)
+            snprintf(line,sizeof(line),"    #%d %s+0x%lx\n",i,where.dli_sname,(unsigned long)((uintptr_t)frames[i]-(uintptr_t)where.dli_saddr));
+        else
+            snprintf(line,sizeof(line),"    #%d %p\n",i,frames[i]);
+        ssize_t written_=write(2,line,strlen(line)); (void)written_;
+    }
+}
+#endif
+static void thread_dump(int sig, siginfo_t *info, void *context) {
+    (void)sig; (void)info;
+    dump_frames(context);
+#ifdef __APPLE__
+    host_backtrace(context);
+#endif
+}
 static void watchdog(int sig, siginfo_t *info, void *context) {
     (void)info;
     const char head[]="STOP: watchdog timeout; thread stacks:\n";

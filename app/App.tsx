@@ -198,6 +198,13 @@ export default function App() {
             onPress={() => run(() => Gow3Core.startGameCpuOnly())}
             disabled={busy || files.started || !files.boot || !files.eboot}
           />
+          {files.started ? (
+            <Button
+              title="Dump threads"
+              onPress={() => run(async () => `Thread dump: ${await Gow3Core.dumpGameThreads()} threads (see the game log)`)}
+              disabled={busy}
+            />
+          ) : null}
           <Button
             title="Clear game log"
             onPress={() => {

@@ -15,6 +15,8 @@ private func gow3_jit_debugger_attached() -> Int32
 private func gow3_jit_setup(_ poolMb: UInt32) -> Int32
 @_silgen_name("gow3_start")
 private func gow3_start(_ argc: Int32, _ argv: UnsafePointer<UnsafePointer<CChar>?>?, _ logPath: UnsafePointer<CChar>?) -> Int32
+@_silgen_name("gow3_dump_threads")
+private func gow3_dump_threads() -> Int32
 @_silgen_name("gow3_jit_pool_ready")
 private func gow3_jit_pool_ready() -> Int32
 @_silgen_name("gow3_selftest")
@@ -300,6 +302,11 @@ public class Gow3CoreModule: Module {
     Function("readGameLog") { () -> String in
       guard let data = try? Data(contentsOf: Gow3CoreModule.gameLogURL) else { return "" }
       return String(decoding: data.suffix(24 * 1024), as: UTF8.self)
+    }
+
+    /// For a hang: every thread writes where it is to the game log.
+    AsyncFunction("dumpGameThreads") { () -> Int in
+      Int(gow3_dump_threads())
     }
 
     Function("clearGameLog") {

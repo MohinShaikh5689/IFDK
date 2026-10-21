@@ -30,6 +30,8 @@ declare class Gow3CoreModule extends NativeModule<{}> {
   /** The last 24 KiB of the loader log. */
   readGameLog(): string;
   clearGameLog(): void;
+  /** For a hang: every thread writes its guest and host frames to the game log. Threads signalled. */
+  dumpGameThreads(): Promise<number>;
   /** JSON results of the memory, JIT and FEXCore self-tests. */
   runSelfTest(): Promise<string>;
   /** Connected game controllers (GameController framework). */
