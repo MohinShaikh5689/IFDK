@@ -8,6 +8,16 @@ FEX="$ROOT/native/third_party/FEX"
 OUT="${1:-$ROOT/build/native-ios}"
 DEST="$ROOT/app/modules/gow3-core/ios/lib"
 
+# Our fixes to the FEX fork (a submodule we cannot push to), applied once to its checkout.
+for patch in "$ROOT"/native/patches/fex/*.patch; do
+  if git -C "$FEX" apply --reverse --check "$patch" 2>/dev/null; then
+    echo "FEX patch already applied: $(basename "$patch")"
+  else
+    git -C "$FEX" apply "$patch"
+    echo "FEX patch applied: $(basename "$patch")"
+  fi
+done
+
 cmake -S "$FEX" -B "$OUT" -G Ninja \
   -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_SYSTEM_PROCESSOR=arm64 -DCMAKE_OSX_ARCHITECTURES=arm64 \
   -DCMAKE_OSX_SYSROOT=iphoneos \
