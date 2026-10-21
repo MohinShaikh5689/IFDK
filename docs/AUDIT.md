@@ -93,6 +93,16 @@ Device: iPhone 17, `iPhone18,3`, iOS build 24A435, 7672 MB RAM, free Apple ID, d
      which adds `increased-memory-limit` and `extended-virtual-addressing` to the App ID, and then the same IPA is reinstalled.
      Extended VA would also fix the address-space problem (8 GB+ reservations fail today). App 0.1.2 asks for both keys,
      and the device report shows what the signature and the profile carry (`ent_*`, `profile_*`).
+     SideStore drops `increased-memory-limit` when signing with a free account (SideStore issue #1616), and GetMoreRam's login failed with -80045.
+- **AltStore keeps it (2026-10-21, free Apple ID, app 0.1.2, JIT off).** `ent_increased_memory` and `profile_increased_memory` are true,
+  and extended VA is still false. The results:
+  - The jetsam limit is **6143 MB** (was 3375), with 6125 MB available at start.
+  - The task map now ends at `0x8000000000` (507 GB). The hole at `0x7000000000` is **64 GiB**, and ANYWHERE reservations of 4-64 GB all succeed there.
+    Free VA is 65 GB, and there are only 162 VM regions (32941 before).
+  - The 384 GB guard region at `0x1000000000` is still there. Fixed windows at 32/64/256 GiB still fail (KERN_NO_SPACE), so the PS4 windows go in the 64 GiB hole.
+  - NO_FOOTPRINT ownership now fails with kr=8 (was 4) and still counts. File-backed memory is still free (0 MB).
+  Still to check: whether the larger map and the 32941→162 region drop hold with StikDebug attached and the JIT pool mapped.
+  A refresh by SideStore would re-sign without the key, so the app has to be refreshed through AltStore/AltServer.
   2. A file-backed "swap tier" (ml1077, in Wine's `virtual_ios.c`; `swap-mb = 3072` in its example config).
      Guest commits go to MAP_SHARED mappings of a sparse `tmp/madeira-swap.bin`. The file is created with `NSFileProtectionNone`,
      so the mapping still works while the phone is locked. Decommit punches holes with `fcntl(F_PUNCHHOLE)`, and `swap-mb` is a soft cap on disk use.
