@@ -1,7 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
  * The loader inside the iOS app: probe.c's main (gow3_probe_main on Apple) on a thread of its own,
  * with its output appended to a log file, since an app has no terminal and cannot start processes. */
+#ifndef __APPLE__ /* strdup on glibc; on Darwin it would hide pthread_from_mach_thread_np */
 #define _POSIX_C_SOURCE 200809L
+#endif
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
