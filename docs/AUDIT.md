@@ -103,6 +103,11 @@ Device: iPhone 17, `iPhone18,3`, iOS build 24A435, 7672 MB RAM, free Apple ID, d
   - NO_FOOTPRINT ownership now fails with kr=8 (was 4) and still counts. File-backed memory is still free (0 MB).
   Still to check: whether the larger map and the 32941→162 region drop hold with StikDebug attached and the JIT pool mapped.
   A refresh by SideStore would re-sign without the key, so the app has to be refreshed through AltStore/AltServer.
+- **App 0.1.4 with the built-in JIT (2026-10-21, AltStore, no StikDebug).** In-app pairing and the JIT helper enabled JIT;
+  every FEX test returns 42 (loop 70 ms). The memory entitlement holds with JIT on: limit 6143 MB, the 64 GiB hole at
+  `0x7000000000`, and 4-64 GB reservations all succeed there. VM regions are back at about 32950 once the JIT pool is mapped.
+  GPU: Apple A19, `supportsBCTextureCompression` true, so PS4 BC1-BC7 textures can be sampled as they are (no transcoding);
+  family Apple9, max buffer 4096 MB, recommended working set 5461 MB.
   2. A file-backed "swap tier" (ml1077, in Wine's `virtual_ios.c`; `swap-mb = 3072` in its example config).
      Guest commits go to MAP_SHARED mappings of a sparse `tmp/madeira-swap.bin`. The file is created with `NSFileProtectionNone`,
      so the mapping still works while the phone is locked. Decommit punches holes with `fcntl(F_PUNCHHOLE)`, and `swap-mb` is a soft cap on disk use.

@@ -1,5 +1,7 @@
 # Built-in JIT (no StikDebug)
 
+Works on the iPhone 17 (iOS 27, AltStore install) since app 0.1.4 (2026-10-21).
+
 iOS only lets a sideloaded app make memory executable while a debugger has marked it `CS_DEBUGGED`.
 gow3-ios brings its own debugger client, the same design as Madeira's "Built-in StikJIT":
 
