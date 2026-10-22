@@ -80,7 +80,14 @@ struct PageManager::Impl {
         } else {
             Gow3Stats::read_faults.fetch_add(1, std::memory_order_relaxed);
             Gow3Stats::Timer timer{Gow3Stats::t_read_faults};
+#ifdef __APPLE__
+            // gow3 (iOS): as OnWriteFault, the whole 16K host page, which other resources share.
+            const VAddr page = addr & ~VAddr(PM_PAGE_SIZE - 1);
+            return rasterizer->ReadMemory(page, PM_PAGE_SIZE, is_gpu_thread) ||
+                   rasterizer->ReadMemory(addr, 8, is_gpu_thread);
+#else
             return rasterizer->ReadMemory(addr, 8, is_gpu_thread);
+#endif
         }
         return false;
     }

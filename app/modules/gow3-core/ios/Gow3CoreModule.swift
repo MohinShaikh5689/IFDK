@@ -173,6 +173,9 @@ public class Gow3CoreModule: Module {
     // With graphics, no new frame for 60 s dumps the threads to the log, and 180 s ends the app
     // (gow3_start.c), so a hung game does not keep the CPU busy and the phone hot.
     if !cpuOnly { setenv("GOW3_FRAME_WATCHDOG", "60", 0) }
+    // Flip rate every 5 s and a breakdown of each frame over 40 ms (faults, compiles, waits), while
+    // the frame rate is being worked on.
+    if !cpuOnly { setenv("GOW3_FRAME_STATS", "1", 0) }
     excludeGameFilesFromBackup()
     let log = gameLogURL.path
     watchThermalState(log: log)

@@ -3229,9 +3229,21 @@ bool Rasterizer::InvalidateMemory(VAddr addr, u64 size, bool assume_locks) {
 
 bool Rasterizer::OnWriteFault(VAddr addr, bool assume_locks) {
     DrainDrawPipe();
+#ifdef __APPLE__
+    // gow3 (iOS): pages are protected 16K at a time and several images or buffers share one.
+    // Invalidating only the 8 written bytes leaves the watches of the others on the page, which
+    // stays read-only, and the store faults again (hundreds of times per write, stale GPU copies).
+    // The whole host page is invalidated; a page that is only partly GPU-mapped keeps the 8 bytes.
+    const VAddr page = addr & ~VAddr(VideoCore::TRACKER_BYTES_PER_PAGE - 1);
+    if (!InvalidateMemory(page, VideoCore::TRACKER_BYTES_PER_PAGE, assume_locks) &&
+        !InvalidateMemory(addr, 8, assume_locks)) {
+        return false;
+    }
+#else
     if (!InvalidateMemory(addr, 8, assume_locks)) {
         return false;
     }
+#endif
     buffer_cache.ExtendWriteFault(addr);
     return true;
 }

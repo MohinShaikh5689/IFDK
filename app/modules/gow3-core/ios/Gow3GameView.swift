@@ -44,6 +44,9 @@ final class Gow3GameViewController: UIViewController {
 
   override var prefersStatusBarHidden: Bool { true }
   override var prefersHomeIndicatorAutoHidden: Bool { true }
+  // The game is 16:9: landscape only while this view is up (app.json allows every orientation).
+  override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }
+  override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation { .landscapeRight }
 
   // The drawable follows the view in pixels (MoltenVK sizes the swapchain from it).
   override func viewDidLayoutSubviews() {
@@ -64,6 +67,8 @@ final class Gow3GameViewController: UIViewController {
     while let presented = top.presentedViewController { top = presented }
     let controller = Gow3GameViewController()
     controller.modalPresentationStyle = .fullScreen
+    // Without this, the presenting React Native controller keeps deciding the status bar.
+    controller.modalPresentationCapturesStatusBarAppearance = true
     top.present(controller, animated: false) {
       controller.view.layoutIfNeeded()
       completion(controller)
