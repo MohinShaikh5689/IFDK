@@ -129,6 +129,9 @@ public class Gow3CoreModule: Module {
     }
     // The guest memory pool is a sparse file: in tmp, which iOS does not back up.
     setenv("GOW3_POOL_DIR", NSTemporaryDirectory(), 1)
+    // The GPU library's settings (gow3.ini, written by its menu) next to the saves; the working
+    // directory is read-only on iOS.
+    setenv("GOW3_CONFIG", user + "/gow3.ini", 0)
     let log = gameLogURL.path
     try? "--- \(Date()) start: \(args.joined(separator: " "))\n".appendLine(to: log)
     let cStrings = args.map { strdup($0) }

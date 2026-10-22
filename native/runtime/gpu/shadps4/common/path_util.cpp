@@ -10,6 +10,7 @@
 
 #ifdef __APPLE__
 #include <CoreFoundation/CFBundle.h>
+#include <TargetConditionals.h>
 #include <dlfcn.h>
 #include <sys/param.h>
 #endif
@@ -91,7 +92,13 @@ static auto UserPaths = [] {
     if (!std::filesystem::exists(user_dir)) {
         // If it doesn't exist, use the standard path for the platform instead.
         // NOTE: On Windows we currently just create the portable directory instead.
-#ifdef __APPLE__
+#if defined(__APPLE__) && TARGET_OS_IOS
+        // gow3 (iOS): this runs before main, so GOW3_GPU_USER_DIR cannot be set yet. The app's
+        // Caches folder (not backed up) holds the pipeline cache; Application Support may not
+        // exist yet, and create_directory below is not recursive.
+        user_dir = std::filesystem::path(getenv("HOME")) / "Library" / "Caches" / "gow3";
+        std::filesystem::create_directories(user_dir);
+#elif defined(__APPLE__)
         user_dir =
             std::filesystem::path(getenv("HOME")) / "Library" / "Application Support" / "shadPS4";
 #elif defined(__linux__)
