@@ -206,6 +206,13 @@ TemporalUpscaler::TemporalUpscaler(const Instance& instance_, Scheduler& schedul
                               .optimalTilingFeatures;
     depth_blit = (features & vk::FormatFeatureFlagBits::eBlitSrc) &&
                  (features & vk::FormatFeatureFlagBits::eBlitDst);
+#ifdef __APPLE__
+    // gow3 (iOS): FSR 3/4 are not built (ios/ffx_stub.c); the upscaler stays off.
+    if (enabled) {
+        std::printf("Upscaler: FSR 3/4 are not part of the iOS build, upscaler off\n");
+        enabled = false;
+    }
+#endif
     if (enabled && !instance.IsStorageImageWriteWithoutFormatEnabled()) {
         std::printf("Upscaler: shaderStorageImageWriteWithoutFormat unsupported, FSR 3 off\n");
         enabled = false;
