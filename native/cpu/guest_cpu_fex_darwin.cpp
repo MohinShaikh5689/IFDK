@@ -550,7 +550,12 @@ int guest_cpu_handle_fault(int sig, siginfo_t* info, void* ucontext) {
         }
     }
     // Unaligned atomics of guest code (x86 allows them): FEXCore rewrites the access.
-    if (sig == SIGBUS && info->si_code == BUS_ADRALN && ctx->IsAddressInCodeBuffer(thread, ss.__pc)) {
+    // Darwin reports writes to protected pages with the same SIGBUS/BUS_ADRALN, so only a real
+    // alignment fault (ESR data fault status 0b100001) goes to FEXCore: for a plain store, its
+    // "already backpatched" check answers "run it again", and a store to a page that GPU tracking
+    // protects then faults forever without the tracker seeing it (the game hangs on a black screen).
+    const bool alignment_fault = (uc->uc_mcontext->__es.__esr & 0x3f) == 0x21;
+    if (sig == SIGBUS && info->si_code == BUS_ADRALN && alignment_fault && ctx->IsAddressInCodeBuffer(thread, ss.__pc)) {
         if (const auto skip = FEXCore::ArchHelpers::Arm64::HandleUnalignedAccess(thread, unaligned_type, ss.__pc, Gprs(uc))) {
             ss.__pc += *skip;
             return 1;
