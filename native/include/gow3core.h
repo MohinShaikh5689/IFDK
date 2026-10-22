@@ -27,6 +27,9 @@ size_t gow3_selftest(const char *log_path, char *out, size_t capacity);
 int gow3_start(int argc, const char *const *argv, const char *log_path);
 /* Has every thread write its guest and host frames to the log (for a hang). Threads signalled, or -1. */
 int gow3_dump_threads(void);
+/* The game's window: the CAMetalLayer the GPU library presents to (width x height pixels, the screen's
+ * maximum refresh rate). Call before the game opens its video output, and again when the size changes. */
+void gow3_gpu_set_surface(void *metal_layer, uint32_t width, uint32_t height, uint32_t refresh_hz);
 /* MoltenVK on the screen: a Vulkan swapchain on `metal_layer` (a CAMetalLayer, width x height pixels)
  * cleared to a cycling colour for `seconds`. JSON: device, driver, frames and fps, and which of the
  * extensions and features shadPS4's video core uses the device lacks. */

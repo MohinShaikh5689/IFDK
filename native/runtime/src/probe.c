@@ -15,6 +15,10 @@
 #include "actor_hook.h"
 #include "damage_hook.h"
 #include "gpu/gow3gpu.h"
+#ifdef __APPLE__
+/* native/cpu/guest_cpu_fex_darwin.cpp: the last host calls made by guest code (fault report). */
+void gow3_guest_dump_recent_calls(int fd);
+#endif
 #if !defined(__GNUC__) || (!defined(__x86_64__) && defined(_WIN32))
 #error This prototype requires GCC or Clang, on x86-64 for MinGW.
 #endif
@@ -308,6 +312,35 @@ static void fault(int sig, siginfo_t *info, void *context) {
         snprintf(line, sizeof(line), "  called by the game at guest offset 0x%lx\n", (unsigned long)(regs.rip - (uintptr_t)image));
         ssize_t written_=write(2, line, strlen(line)); (void)written_;
     }
+#ifdef __APPLE__
+    /* iOS: no debugger on the device, so the report carries what one would show: the guest
+     * registers, image addresses on the guest stack (return addresses) and the last HLE calls. */
+    if (in_guest) {
+        static const char *const names[GUEST_GPRS] = {"rax","rcx","rdx","rbx","rsp","rbp","rsi","rdi",
+                                                      "r8","r9","r10","r11","r12","r13","r14","r15"};
+        for (int i = 0; i < GUEST_GPRS; i += 4) {
+            snprintf(line, sizeof(line), "  %-3s %016" PRIx64 "  %-3s %016" PRIx64 "  %-3s %016" PRIx64 "  %-3s %016" PRIx64 "\n",
+                     names[i], regs.gpr[i], names[i+1], regs.gpr[i+1], names[i+2], regs.gpr[i+2], names[i+3], regs.gpr[i+3]);
+            ssize_t written_=write(2, line, strlen(line)); (void)written_;
+        }
+        /* vm_read_overwrite cannot fault, whichever mapping the guest stack is in. */
+        static uint64_t stack[256];
+        vm_size_t got = 0;
+        if (vm_read_overwrite(mach_task_self(), (vm_address_t)regs.gpr[GUEST_RSP], sizeof(stack),
+                              (vm_address_t)stack, &got) != KERN_SUCCESS)
+            got = 0;
+        int found = 0;
+        for (int i = 0; i < (int)(got / 8) && found < 12; ++i) {
+            const uint64_t word = stack[i];
+            if (word - (uintptr_t)image < 0x10000000) {
+                snprintf(line, sizeof(line), "  stack[%d] image offset 0x%" PRIx64 "\n", i, word - (uintptr_t)image);
+                ssize_t written_=write(2, line, strlen(line)); (void)written_;
+                ++found;
+            }
+        }
+    }
+    gow3_guest_dump_recent_calls(2);
+#endif
     if (gpu_enabled) gow3gpu_dump_guest_writes(context);
     /* Host call chain (frames with unwind info; guest frames end it). */
     void *frames[32];

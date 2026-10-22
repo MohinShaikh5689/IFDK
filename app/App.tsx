@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
-import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 
 import Gow3Core from './modules/gow3-core/src/Gow3CoreModule';
 
@@ -187,7 +187,7 @@ export default function App() {
           <Button title="Reset disk image" onPress={() => run(() => Gow3Core.resetDeveloperDiskImage())} disabled={busy || !builtIn?.available} />
           <Button title="Forget pairing" onPress={() => Gow3Core.forgetPairing().then(refresh)} disabled={busy || !builtIn?.paired || pairingActive} />
         </View>
-        <Text style={styles.heading}>Game (CPU only, no graphics yet)</Text>
+        <Text style={styles.heading}>Game</Text>
         <Text style={styles.mono}>
           {`Files app > On My iPhone > gow3-ios > gow3:\n` +
             `  boot-linked.bin ${files.boot ? 'ok' : 'MISSING'}, content.bin ${files.content ? 'ok' : 'missing'}, patches.bin ${files.patches ? 'ok' : 'missing'}\n` +
@@ -195,10 +195,17 @@ export default function App() {
         </Text>
         <View style={styles.row}>
           <Button
-            title={files.started ? 'Game running' : 'Start game (CPU only)'}
-            onPress={() => run(() => Gow3Core.startGameCpuOnly())}
+            title={files.started ? 'Game running' : 'Start game'}
+            onPress={() => run(() => Gow3Core.startGame())}
             disabled={busy || files.started || !files.boot || !files.eboot}
           />
+          {files.started ? null : (
+            <Button
+              title="CPU only"
+              onPress={() => run(() => Gow3Core.startGameCpuOnly())}
+              disabled={busy || !files.boot || !files.eboot}
+            />
+          )}
           {files.started ? (
             <Button
               title="Dump threads"
@@ -206,6 +213,15 @@ export default function App() {
               disabled={busy}
             />
           ) : null}
+          <Button
+            title="Copy logs"
+            onPress={() => {
+              // The share sheet has Copy (and AirDrop, Notes, ...): no clipboard module is built in.
+              const text = Gow3Core.readGameLog();
+              if (text) Share.share({ message: text }).catch(() => {});
+            }}
+            disabled={!gameLog}
+          />
           <Button
             title="Clear game log"
             onPress={() => {

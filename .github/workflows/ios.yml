@@ -41,9 +41,9 @@ jobs:
       - name: Native core cache key
         id: native-key
         run: |
-          fex=$(git rev-parse HEAD:native/third_party/FEX)
+          fex=$(git ls-tree -r HEAD native/third_party native/runtime/third_party native/runtime/gpu/third_party | grep '^160000' | shasum | cut -c1-12)
           xcode=$(xcodebuild -version | shasum | cut -c1-12)
-          echo "key=native-${{ runner.os }}-$fex-$xcode-${{ hashFiles('native/cmake/**', 'native/cpu/**', 'native/jit/**', 'native/gpu/**', 'native/selftest/**', 'native/include/**', 'native/runtime/**', 'native/patches/**', 'native/scripts/build-ios.sh') }}" >> "$GITHUB_OUTPUT"
+          echo "key=native-${{ runner.os }}-$fex-$xcode-${{ hashFiles('native/cmake/**', 'native/cpu/**', 'native/jit/**', 'native/gpu/**', 'native/selftest/**', 'native/include/**', 'native/runtime/**', 'native/patches/**', 'native/scripts/build-ios.sh', 'native/scripts/fetch-submodules.sh') }}" >> "$GITHUB_OUTPUT"
 
       - name: Restore the native core
         id: native-cache
@@ -62,11 +62,7 @@ jobs:
       - name: FEX and the submodules its iOS build needs
         if: steps.native-cache.outputs.cache-hit != 'true'
         run: |
-          git submodule update --init --depth 1 native/third_party/FEX native/runtime/third_party/LibAtrac9
-          cd native/third_party/FEX
-          # Only what configure uses with tests, thunks and the profiler off; the test-binary
-          # repositories are large and not needed.
-          git submodule update --init --depth 1 External/fmt External/xxhash External/range-v3 External/unordered_dense External/vixl
+          native/scripts/fetch-submodules.sh
 
       - name: Tools
         run: |
@@ -77,7 +73,9 @@ jobs:
 
       - name: Native core (FEXCore + gow3core for iOS arm64)
         if: steps.native-cache.outputs.cache-hit != 'true'
-        run: native/scripts/build-ios.sh build/native-ios
+        run: |
+          brew install glslang boost
+          native/scripts/build-ios.sh build/native-ios
 
       - name: Cargo cache
         uses: actions/cache@v4

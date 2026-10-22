@@ -25,8 +25,10 @@ declare class Gow3CoreModule extends NativeModule<{}> {
   enableJitBuiltIn(poolMb: number): Promise<number>;
   /** Documents/gow3: which of the loader's files are there (from the PC's gow3 out/ folder, and game/). */
   gameFiles(): { folder: string; boot: boolean; content: boolean; patches: boolean; eboot: boolean; sfo: boolean; started: boolean };
-  /** Runs the game CPU-only (no GPU yet) through FEXCore; output goes to Documents/gow3/loader.log. */
+  /** Runs the game CPU-only through FEXCore (stops at the first GPU call); output goes to Documents/gow3/loader.log. */
   startGameCpuOnly(): Promise<string>;
+  /** Runs the game with graphics in a fullscreen Metal view (two-finger double tap hides it). */
+  startGame(): Promise<string>;
   /** The last 24 KiB of the loader log. */
   readGameLog(): string;
   clearGameLog(): void;

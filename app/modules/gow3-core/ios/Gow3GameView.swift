@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The native fullscreen view the GPU draws into: a CAMetalLayer-backed view in a view controller
-// presented over React Native, which stays idle behind it. The MoltenVK screen test uses it now,
-// and the game's Vulkan presenter will later.
+// presented over React Native, which stays idle behind it. The MoltenVK screen test and the game's
+// Vulkan presenter (gow3_gpu_set_surface) draw into it.
 import QuartzCore
 import UIKit
 
@@ -18,6 +18,30 @@ final class Gow3GameViewController: UIViewController {
     view = metalView
   }
 
+  /// The game presents into this view's layer: its size goes to the GPU library on every layout.
+  var feedsGame = false
+
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    let hide = UITapGestureRecognizer(target: self, action: #selector(hideGameView))
+    hide.numberOfTouchesRequired = 2
+    hide.numberOfTapsRequired = 2
+    view.addGestureRecognizer(hide)
+  }
+
+  @objc private func hideGameView() {
+    guard feedsGame else { return }
+    dismiss(animated: false)
+  }
+
+  /// Hands the layer, its pixel size and the screen's maximum refresh rate to the GPU library.
+  func publishSurface() {
+    let layer = metalView.metalLayer
+    let size = layer.drawableSize
+    let hz = view.window?.screen.maximumFramesPerSecond ?? UIScreen.main.maximumFramesPerSecond
+    gow3_gpu_set_surface(Unmanaged.passUnretained(layer).toOpaque(), UInt32(size.width), UInt32(size.height), UInt32(hz))
+  }
+
   override var prefersStatusBarHidden: Bool { true }
   override var prefersHomeIndicatorAutoHidden: Bool { true }
 
@@ -27,6 +51,7 @@ final class Gow3GameViewController: UIViewController {
     let scale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
     metalView.metalLayer.contentsScale = scale
     metalView.metalLayer.drawableSize = CGSize(width: view.bounds.width * scale, height: view.bounds.height * scale)
+    if feedsGame { publishSurface() }
   }
 
   /// Presents a new one fullscreen over the topmost view controller; nil when there is no key window.

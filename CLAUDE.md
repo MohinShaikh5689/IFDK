@@ -73,5 +73,8 @@ Expo (React Native) app shell: launcher, dump import via Files app, settings, JI
    and every runtime file without SDL3/FFmpeg compiles for iOS (`.github/workflows/runtime.yml`; Linux tests in `tests/run.sh`).
    Next: probe.c as an in-app `gow3_start` (CPU-only first), stubs for the GPU/SDL3/FFmpeg parts, then link with `native/cpu`.
    The loader reads `boot.bin` made by gow3's `scripts/prepare.py` (Python), so the first device tests need it run on a PC.
-5. Get MoltenVK rendering with shadPS4's video core, then boot GoW3.
+5. Get MoltenVK rendering with shadPS4's video core, then boot GoW3. IN PROGRESS.
+   MoltenVK screen test passes on the device. `native/runtime/gpu` (gow3_android gpu/, iOS commits after the
+   import) builds as libgow3gpu.a (`native/cmake/gow3gpu.cmake`, CI `.github/workflows/gpu.yml`) and is linked
+   into the app (0.1.9 "Start game"). Next: first device run; see docs/NEXT.md.
 6. Tune memory to fit 8 GB, and tune performance and thermals.

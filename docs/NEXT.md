@@ -1,26 +1,38 @@
-# Next tasks (handover, 2026-10-21 evening)
+# Next tasks (handover, 2026-10-22)
 
-**Status:** all on `main`. App **0.1.8** (Actions → "iOS IPA" on main → artifact `gow3-ios-Release-ipa`).
-- CPU side boots: module 1 (fixed: FEX unaligned-atomic backpatch now writes through the JIT pool's RW
-  alias, `native/patches/fex/0001-*.patch`), the game's entry runs, 6 guest threads start, and the
-  CPU-only run stops by design at `sceVideoOutOpen` (first GPU import).
-- GPU step 1 done: `native/gpu/screen_test.c` + `Gow3GameView.swift`. MoltenVK 1.4.2 on the A19:
-  Vulkan 1.3, 60 fps at 1206x2622, all four extensions shadPS4 requires are present.
-  Missing: `nullDescriptor` and `robustBufferAccess2` (shadPS4 asserts on both: replace the two
-  VK_NULL_HANDLE buffer bindings in vk_rasterizer.cpp with a dummy buffer, drop the robustness asserts),
-  `geometryShader` (shadPS4 skips those draws with a warning; GoW3's renderer comes from the PS3, which
-  had no GS, so likely unused; log the warning on device to confirm), `logicOp`, `shaderFloat64`.
-- Two game files were not found in the CPU-only run (EXEC/...): the full game must be on the phone
-  for the GPU work (`ENGLISH/`, `EXEC/` (30 GB), `sce_module/`, both `.plt` from the update).
+## GPU step 2: shadPS4's video core in the app (this branch)
+- `native/runtime/gpu/` is gow3_android `gpu/` (imported unmodified, then iOS commits marked `gow3 (iOS)`).
+  `native/cmake/gow3gpu.cmake` builds it as `libgow3gpu.a` inside the FEX tree (FEX's fmt and xxhash);
+  `gow3gpu_deps.cmake` holds the parts CMake forbids in deferred code (OBJCXX, sirit, miniz).
+  New submodules: Vulkan-Headers v1.4.344 (as gow3_android; FEX's 1.4.337 is too old), VMA 3.3.0,
+  robin-map 1.4.1; SDL3 3.2.24 is a pinned tarball (static, no GL/GLES), Boost and glslang come from Homebrew.
+- Left out on iOS: FSR 3/4 (`ios/ffx_stub.c` fails their calls), AvPlayer (`ios/avplayer_stub.cpp`, needs
+  FFmpeg), Zydis/xbyak (x86-64 SRT walker JIT; ARM64 interprets). `gow3_png` decodes with ImageIO.
+- iOS changes: page tracking at 16 KiB (`TRACKER_PAGE_BITS` 14), `ios/window_ios.mm` (Frontend::WindowSDL on
+  the app's CAMetalLayer via `gow3_gpu_set_surface`; text dialog confirms its initial text), the Vulkan
+  dispatcher from MoltenVK's linked `vkGetInstanceProcAddr`, `ios/gow3_darwin_compat.h` (gettid), utility-QoS
+  helper threads, user paths in `Library/Caches/gow3` (static init, before main), no nullDescriptor /
+  robustBufferAccess2 (soft on Apple; null buffer bindings get a zeroed stand-in).
+- Local check on Linux x86-64 (catches dependency/API problems before CI): configure FEX with
+  `-DENABLE_X86_HOST_DEBUG=ON -DENABLE_FEX_ALLOCATOR=OFF -DCMAKE_PROJECT_FEX_INCLUDE=native/cmake/fex_project.cmake`
+  and `ninja gow3gpu -k 0`; only xbyak, FFmpeg and the .mm fail there (Linux-only).
+- CI: `.github/workflows/gpu.yml` (GOW3_BUILD=gpu-check, error summary). The IPA workflow builds and links it.
+- App 0.1.9: **Start game** (graphics: Metal view over the app, two-finger double tap hides it) and **CPU only**.
 
-## Next: GPU step 2, shadPS4's video core in the app
-1. Build gow3_android `gpu/` for iOS (static, inside build-ios.sh): Boost headers, fmt, VMA, sirit,
-   Zydis, magic_enum, robin-map, xxhash, miniz, imgui; host shaders with glslang on the runner.
-   Leave out FSR 3/4, FFmpeg (avplayer: stub), SDL3.
-2. Port `video_core/page_manager.cpp` (futex, MAP_NORESERVE, 4 KiB tracking → 16 KiB),
-   `common/signal_context.cpp` / `shim/gow3gpu.cpp` fault context to Darwin `__ss`.
-3. Window: replace `shim/window.cpp` (SDL3) with Gow3GameView's CAMetalLayer (VK_EXT_metal_surface).
-4. Replace `native/runtime/ios/stub_gpu.c`, drop `--cpu-only`, boot to the first frame.
+## Next
+0. **Sparse buffers: confirmed missing on the A19 (0.1.9 log), now handled (0.1.10).** Without a sparse queue,
+   BufferCache uses dense arenas: 64 MiB device-local buffers (`GOW3_ARENA_MB`, 16-1024) made when the GPU
+   first touches their range; EnsureResident only writes the BDA page table; a request crossing two arenas
+   merges them with a GPU copy (old arenas stay allocated). Watch "Migrating arena" and GPU memory in the log;
+   the alternative with no copies at all is importing guest memory (VK_EXT_external_memory_host is present).
+1. Device test of 0.1.10: Start game; read `Documents/gow3/loader.log` (GPU init, instance/device creation,
+   the robustness2 warning, first `sceVideoOutOpen`, first frame). Full game files must be on the phone.
+2. Expected device issues: null *image* descriptors (vk_rasterizer.cpp binds VK_NULL_HANDLE image views for
+   unbound textures; needs a dummy view per type if MoltenVK rejects them), sparse buffer arenas (MoltenVK has
+   no sparse binding; check the BufferCache probe falls back), geometry shaders (warning only), pipeline
+   compile times (SPIR-V -> MSL) and memory.
+3. Touch/gamepad into the overlay (Gow3Overlay::HandleEvent takes SDL events; SDL gamepad init without video).
+4. Audio (SDL3 audio is now linked), FFmpeg for iOS (AvPlayer, mp3, videodec), boot.bin preparation on the phone.
 
 ---
 ## Earlier handover (morning of 2026-10-21)

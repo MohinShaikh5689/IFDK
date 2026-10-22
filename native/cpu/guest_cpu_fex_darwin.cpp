@@ -29,6 +29,9 @@
 #include <FEXCore/Utils/SignalScopeGuards.h>
 #include <FEXCore/Utils/TypeDefines.h>
 
+#include <dlfcn.h>
+#include <pthread.h>
+
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -184,6 +187,16 @@ void InvalidateCode(uint64_t start, uint64_t length) {
     }
 }
 
+// The last host functions guest code called (any thread), for the fault report: which HLE call
+// the game made right before it failed (gow3_guest_dump_recent_calls).
+struct RecentCall {
+    void* fn;
+    uint64_t tid, rdi, rsi, rdx, result;
+};
+constexpr uint32_t RecentCalls = 32;
+RecentCall recent_calls[RecentCalls];
+std::atomic<uint32_t> recent_next{0};
+
 // A guest call of a host function: SysV registers in, AAPCS64 call, SysV registers out.
 // Darwin note: stack arguments are passed at natural alignment on Apple arm64, not in 8-byte
 // slots, so host functions with more than 8 integer arguments must take 64-bit ones there.
@@ -204,8 +217,13 @@ void CallHost(CPUState& s, void* fn) {
     for (unsigned i = 0; i < 8; ++i) {
         std::memcpy(&args.v[i], Xmm(s, i), sizeof(args.v[i]));
     }
+    uint64_t tid = 0;
+    pthread_threadid_np(nullptr, &tid);
+    RecentCall& recent = recent_calls[recent_next.fetch_add(1, std::memory_order_relaxed) % RecentCalls];
+    recent = {fn, tid, args.x[0], args.x[1], args.x[2], ~0ULL};
     HostResult result;
     gow3cpu_host_call(fn, &args, &result);
+    if (recent.fn == fn && recent.tid == tid) recent.result = result.x[0];
     s.gregs[REG_RAX] = result.x[0];
     s.gregs[REG_RDX] = result.x[1];
     std::memcpy(Xmm(s, 0), &result.v[0], sizeof(result.v[0]));
@@ -577,3 +595,22 @@ uint64_t guest_cpu_tsc_frequency(void) {
     return frequency << tsc_shift;
 }
 } // extern "C"
+
+// For the loader's fault report (probe.c): the last host calls made by guest code, oldest first,
+// written with write(2) so it works in a signal handler that is about to end the process.
+extern "C" void gow3_guest_dump_recent_calls(int fd) {
+    const uint32_t end = recent_next.load(std::memory_order_relaxed);
+    const uint32_t count = end < RecentCalls ? end : RecentCalls;
+    char line[256];
+    int n = snprintf(line, sizeof(line), "Last %u host calls from guest code (oldest first):\n", count);
+    if (n > 0) (void)!write(fd, line, size_t(n));
+    for (uint32_t i = end - count; i != end; ++i) {
+        const RecentCall& c = recent_calls[i % RecentCalls];
+        Dl_info where{};
+        const char* name = c.fn && dladdr(c.fn, &where) && where.dli_sname ? where.dli_sname : "?";
+        n = snprintf(line, sizeof(line), "  tid %llu %s(0x%llx, 0x%llx, 0x%llx) -> 0x%llx\n",
+                     (unsigned long long)c.tid, name, (unsigned long long)c.rdi, (unsigned long long)c.rsi,
+                     (unsigned long long)c.rdx, (unsigned long long)c.result);
+        if (n > 0) (void)!write(fd, line, size_t(n) < sizeof(line) ? size_t(n) : sizeof(line) - 1);
+    }
+}

@@ -141,20 +141,26 @@ size_t gow3_gpu_screen_test(void *metal_layer, uint32_t width, uint32_t height, 
     put(&j, "],");
 
     VkPhysicalDeviceRobustness2FeaturesEXT robustness2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ROBUSTNESS_2_FEATURES_EXT};
-    VkPhysicalDeviceFeatures2 features = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
-    if (has_extension(extensions, extension_count, "VK_EXT_robustness2")) features.pNext = &robustness2;
+    /* shadPS4's buffer cache maps guest memory into sparse buffer arenas reached through buffer device
+     * addresses (BufferCache::GetArena / EnsureResident). */
+    VkPhysicalDeviceVulkan12Features vulkan12 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES,
+                                                 .pNext = &robustness2};
+    VkPhysicalDeviceFeatures2 features = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &vulkan12};
+    if (!has_extension(extensions, extension_count, "VK_EXT_robustness2")) vulkan12.pNext = NULL;
     vkGetPhysicalDeviceFeatures2(physical, &features);
     const VkPhysicalDeviceFeatures *f = &features.features;
     put(&j, "\"features\":{\"geometryShader\":%d,\"tessellationShader\":%d,\"dualSrcBlend\":%d,\"logicOp\":%d,"
             "\"depthClamp\":%d,\"depthBiasClamp\":%d,\"fillModeNonSolid\":%d,\"imageCubeArray\":%d,\"independentBlend\":%d,"
             "\"sampleRateShading\":%d,\"multiViewport\":%d,\"textureCompressionBC\":%d,\"shaderInt64\":%d,"
             "\"shaderInt16\":%d,\"shaderFloat64\":%d,\"fragmentStoresAndAtomics\":%d,\"vertexPipelineStoresAndAtomics\":%d,"
-            "\"shaderStorageImageExtendedFormats\":%d,\"robustBufferAccess2\":%d,\"robustImageAccess2\":%d,\"nullDescriptor\":%d},",
+            "\"shaderStorageImageExtendedFormats\":%d,\"robustBufferAccess2\":%d,\"robustImageAccess2\":%d,\"nullDescriptor\":%d,"
+            "\"sparseBinding\":%d,\"sparseResidencyBuffer\":%d,\"sparseResidencyAliased\":%d,\"bufferDeviceAddress\":%d},",
         f->geometryShader, f->tessellationShader, f->dualSrcBlend, f->logicOp, f->depthClamp, f->depthBiasClamp,
         f->fillModeNonSolid, f->imageCubeArray, f->independentBlend, f->sampleRateShading, f->multiViewport,
         f->textureCompressionBC, f->shaderInt64, f->shaderInt16, f->shaderFloat64, f->fragmentStoresAndAtomics,
         f->vertexPipelineStoresAndAtomics, f->shaderStorageImageExtendedFormats, robustness2.robustBufferAccess2,
-        robustness2.robustImageAccess2, robustness2.nullDescriptor);
+        robustness2.robustImageAccess2, robustness2.nullDescriptor, f->sparseBinding, f->sparseResidencyBuffer,
+        f->sparseResidencyAliased, vulkan12.bufferDeviceAddress);
 
     /* A queue that draws and presents. */
     uint32_t families = 0;
@@ -162,6 +168,9 @@ size_t gow3_gpu_screen_test(void *metal_layer, uint32_t width, uint32_t height, 
     VkQueueFamilyProperties family_list[16];
     if (families > 16) families = 16;
     vkGetPhysicalDeviceQueueFamilyProperties(physical, &families, family_list);
+    int sparse_queue = 0;
+    for (uint32_t i = 0; i < families; ++i) sparse_queue |= (family_list[i].queueFlags & VK_QUEUE_SPARSE_BINDING_BIT) != 0;
+    put(&j, "\"sparse_queue\":%d,", sparse_queue);
     uint32_t family = families;
     for (uint32_t i = 0; i < families && family == families; ++i) {
         VkBool32 present = VK_FALSE;
