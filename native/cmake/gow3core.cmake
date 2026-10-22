@@ -26,6 +26,8 @@ add_library(gow3runtime STATIC
   "${GOW3_RUNTIME}/src/runtime_kernel.c"
   "${GOW3_RUNTIME}/src/runtime_memory.c"
   "${GOW3_RUNTIME}/src/runtime_mutex.c"
+  "${GOW3_RUNTIME}/src/runtime_audio.c"
+  "${GOW3_RUNTIME}/src/runtime_pad.c"
   "${GOW3_RUNTIME}/src/runtime_rtc.c"
   "${GOW3_RUNTIME}/src/runtime_rwlock.c"
   "${GOW3_RUNTIME}/src/runtime_savedata.c"
@@ -41,7 +43,7 @@ add_library(gow3runtime STATIC
   "${GOW3_RUNTIME}/src/vulkan_smoke.c"
   "${GOW3_RUNTIME}/ios/stub_media.c"
   ${GOW3_ATRAC9})
-target_include_directories(gow3runtime PRIVATE "${GOW3_RUNTIME}" "${GOW3_RUNTIME}/src")
+target_include_directories(gow3runtime PRIVATE "${GOW3_RUNTIME}" "${GOW3_RUNTIME}/src" "${GOW3_SDL3_INCLUDE}")
 set_source_files_properties(${GOW3_ATRAC9} PROPERTIES COMPILE_OPTIONS "-w")
 set_source_files_properties("${GOW3_RUNTIME}/src/vulkan_smoke.c" PROPERTIES INCLUDE_DIRECTORIES "${GOW3_MOLTENVK_INCLUDE}")
 set_target_properties(gow3runtime PROPERTIES C_STANDARD 11)

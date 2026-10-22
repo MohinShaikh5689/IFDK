@@ -46,6 +46,10 @@ static void *loader(void *unused) {
     return NULL;
 }
 
+/* SDL3 (audio and gamepads in runtime_audio.c / runtime_pad.c) is a library here: UIKit belongs to the
+ * React Native shell, so there is no SDL_main to mark SDL ready. */
+void SDL_SetMainReady(void);
+
 /* Starts the loader with argv[0..argc) (argv[0] is the program name, argv[1] the boot.bin path);
  * stdout and stderr go to log_path from here on. 0 when the thread started. Call once. */
 int gow3_start(int argc, const char *const *argv, const char *log_path) {
@@ -54,6 +58,10 @@ int gow3_start(int argc, const char *const *argv, const char *log_path) {
         if (!freopen(log_path, "a", stdout) || !freopen(log_path, "a", stderr)) return -2;
         setvbuf(stderr, NULL, _IONBF, 0);
     }
+    SDL_SetMainReady();
+    /* SDL's HIDAPI controller drivers open CoreBluetooth, which iOS ends the app for without a
+     * Bluetooth usage description; DualSense, DS4 and Xbox pads work through GameController. */
+    setenv("SDL_JOYSTICK_HIDAPI", "0", 0);
     loader_argv = calloc((size_t)argc + 1, sizeof(char *));
     if (!loader_argv) return -3;
     for (int i = 0; i < argc; ++i) loader_argv[i] = strdup(argv[i]);

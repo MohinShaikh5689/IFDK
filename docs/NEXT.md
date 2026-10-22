@@ -31,8 +31,12 @@
    unbound textures; needs a dummy view per type if MoltenVK rejects them), sparse buffer arenas (MoltenVK has
    no sparse binding; check the BufferCache probe falls back), geometry shaders (warning only), pipeline
    compile times (SPIR-V -> MSL) and memory.
-3. Touch/gamepad into the overlay (Gow3Overlay::HandleEvent takes SDL events; SDL gamepad init without video).
-4. Audio (SDL3 audio is now linked), FFmpeg for iOS (AvPlayer, mp3, videodec), boot.bin preparation on the phone.
+3. Controllers and audio (0.1.13): runtime_pad.c and runtime_audio.c are built against the app's SDL3
+   (SDL_SetMainReady in gow3_start, SDL_JOYSTICK_HIDAPI=0 so CoreBluetooth is never opened; pads via
+   GameController). The iOS window thread pumps SDL events into Gow3Overlay (R3+L2 menu). Untested on device.
+   Empty texture slots: MoltenVK writes nil textures for null image views (checked in its 1.4.2 source), so no
+   placeholder images yet. Direct memory: 7104 MiB (0.1.12), as run.py sets it for the default patch.
+4. Touch controls, FFmpeg for iOS (AvPlayer, mp3, videodec), boot.bin preparation on the phone.
 
 ---
 ## Earlier handover (morning of 2026-10-21)
