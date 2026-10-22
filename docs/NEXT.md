@@ -1,4 +1,4 @@
-# Next tasks (handover, 2026-10-22)
+# Next tasks (handover, 2026-10-22 evening)
 
 ## GPU step 2: shadPS4's video core in the app (this branch)
 - `native/runtime/gpu/` is gow3_android `gpu/` (imported unmodified, then iOS commits marked `gow3 (iOS)`).
@@ -17,26 +17,36 @@
   `-DENABLE_X86_HOST_DEBUG=ON -DENABLE_FEX_ALLOCATOR=OFF -DCMAKE_PROJECT_FEX_INCLUDE=native/cmake/fex_project.cmake`
   and `ninja gow3gpu -k 0`; only xbyak, FFmpeg and the .mm fail there (Linux-only).
 - CI: `.github/workflows/gpu.yml` (GOW3_BUILD=gpu-check, error summary). The IPA workflow builds and links it.
-- App 0.1.9: **Start game** (graphics: Metal view over the app, two-finger double tap hides it) and **CPU only**.
+- App: **Start game** (graphics: Metal view over the app, two-finger double tap hides it), **CPU only**,
+  **Copy logs** (share sheet), **Dump threads**.
+
+## State on the device (0.1.15, 2026-10-22, without the game data on the phone)
+Everything up to the game's first data loads works on the iPhone 17: FEXCore runs the eboot, the runtime
+loads it, MoltenVK device/swapchain (1206x2622), dense buffer arenas, presenter, overlay, eop/intro/sound
+threads, first graphics pipelines (7 ms each), DualSense through SDL3 (`pad opened`), CoreAudio (3 ports), MP3
+through FFmpeg. It then waits on a black screen because `EXEC/` is missing (`BOOT0_01.GNF`,
+`DEPENDENCYGRAPH.IFF`, `R_FX.WAD` not found). No crash.
+
+Fixed on the way (each from a device log):
+- 0.1.10: no sparse binding on MoltenVK -> dense arenas (64 MiB, `GOW3_ARENA_MB`), soft robustness2.
+- 0.1.11: fault report: guest registers, stack return addresses, last 32 host calls (`CallHost` ring).
+- 0.1.12: `GOW3_DMEM_MB=7104` (default patch "Texture Corruption Fix" needs +2048 MiB, as run.py sets).
+- 0.1.13: controllers and audio through SDL3 (`SDL_SetMainReady`, `SDL_JOYSTICK_HIDAPI=0`).
+- 0.1.14: guest window 4+8+28 GiB; it took all of iOS's 64 GiB hole and thread creation failed (no VA left).
+- 0.1.15: FFmpeg 7.1.2 static (H.264/HEVC/AAC/MP3, swscale, swresample) for runtime_videodec.c / runtime_mp3.c.
 
 ## Next
-0. **Sparse buffers: confirmed missing on the A19 (0.1.9 log), now handled (0.1.10).** Without a sparse queue,
-   BufferCache uses dense arenas: 64 MiB device-local buffers (`GOW3_ARENA_MB`, 16-1024) made when the GPU
-   first touches their range; EnsureResident only writes the BDA page table; a request crossing two arenas
-   merges them with a GPU copy (old arenas stay allocated). Watch "Migrating arena" and GPU memory in the log;
-   the alternative with no copies at all is importing guest memory (VK_EXT_external_memory_host is present).
-1. Device test of 0.1.10: Start game; read `Documents/gow3/loader.log` (GPU init, instance/device creation,
-   the robustness2 warning, first `sceVideoOutOpen`, first frame). Full game files must be on the phone.
-2. Expected device issues: null *image* descriptors (vk_rasterizer.cpp binds VK_NULL_HANDLE image views for
-   unbound textures; needs a dummy view per type if MoltenVK rejects them), sparse buffer arenas (MoltenVK has
-   no sparse binding; check the BufferCache probe falls back), geometry shaders (warning only), pipeline
-   compile times (SPIR-V -> MSL) and memory.
-3. Controllers and audio (0.1.13): runtime_pad.c and runtime_audio.c are built against the app's SDL3
-   (SDL_SetMainReady in gow3_start, SDL_JOYSTICK_HIDAPI=0 so CoreBluetooth is never opened; pads via
-   GameController). The iOS window thread pumps SDL events into Gow3Overlay (R3+L2 menu). Untested on device.
-   Empty texture slots: MoltenVK writes nil textures for null image views (checked in its 1.4.2 source), so no
-   placeholder images yet. Direct memory: 7104 MiB (0.1.12), as run.py sets it for the default patch.
-4. Touch controls, FFmpeg for iOS (AvPlayer, mp3, videodec), boot.bin preparation on the phone.
+1. **Device run with the full game** (`EXEC/`, `ENGLISH/`, `*.plt` incl. the 01.02 update in `gow3/game/`):
+   Start game on 0.1.15, Copy logs. Goal: intro logos, intro video, title screen.
+2. Likely issues on that run: first real GPU work through MoltenVK (shader translation errors, formats the
+   A19 lacks: A2B10G10R10 SNORM/SINT, RGB32 sampling, D16S8 -> fallback), arena merges ("Migrating arena"),
+   memory (`phys_footprint` under ~6 GB), first-compile stutter, FFmpeg video decode on device.
+   Empty texture slots are written as nil by MoltenVK (its 1.4.2 source); add placeholder images only if a
+   log shows a problem. AvPlayer is still a stub (`ios/avplayer_stub.cpp`); enable it if the game imports it.
+3. Later (UX): save backup/restore in the app (saves are `gow3/user/savedata/1/<CUSA>/`, same format as the PC
+   port), touch controls, settings screen, boot.bin preparation on the phone (port scripts/prepare.py).
+4. Later (performance): `FEX E:` debug noise from the FEX fork, JIT pool size, render resolution patches
+   (480p/720p) + MetalFX upscaling, thermals.
 
 ---
 ## Earlier handover (morning of 2026-10-21)
