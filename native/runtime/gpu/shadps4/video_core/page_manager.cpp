@@ -42,8 +42,9 @@
 
 namespace VideoCore {
 
-constexpr size_t PM_PAGE_SIZE = 4_KB;
-constexpr size_t PM_PAGE_BITS = 12;
+// gow3 (iOS): the host page (16K) is the smallest range mprotect can track.
+constexpr size_t PM_PAGE_SIZE = TRACKER_BYTES_PER_PAGE;
+constexpr size_t PM_PAGE_BITS = TRACKER_PAGE_BITS;
 
 struct PageManager::Impl {
     using PageState = VideoCore::PageState;

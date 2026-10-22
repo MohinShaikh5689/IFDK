@@ -52,3 +52,6 @@ set_target_properties(gow3core PROPERTIES
   C_VISIBILITY_PRESET hidden
   CXX_VISIBILITY_PRESET hidden
   VISIBILITY_INLINES_HIDDEN TRUE)
+
+# The GPU library (native/runtime/gpu) for iOS.
+include("${CMAKE_CURRENT_LIST_DIR}/gow3gpu.cmake")

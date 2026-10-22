@@ -41,6 +41,21 @@ asm(".section .rdata,\"dr\"\n"
     ".global gow3_font_ttf_end\n"
     "gow3_font_ttf_end:\n"
     ".text\n");
+#elif defined(__APPLE__)
+// gow3 (iOS): Mach-O sections and symbol names; .alt_entry keeps the end label in the font's
+// atom, so the linker cannot separate or reorder the two.
+asm(".section __TEXT,__const\n"
+    ".p2align 4\n"
+    ".private_extern _gow3_font_ttf\n"
+    ".globl _gow3_font_ttf\n"
+    "_gow3_font_ttf:\n"
+    ".incbin \"" GOW3_FONT_PATH "\"\n"
+    ".private_extern _gow3_font_ttf_end\n"
+    ".globl _gow3_font_ttf_end\n"
+    ".alt_entry _gow3_font_ttf_end\n"
+    "_gow3_font_ttf_end:\n"
+    ".byte 0\n"
+    ".text\n");
 #else
 asm(".section .rodata\n"
     ".balign 16\n"

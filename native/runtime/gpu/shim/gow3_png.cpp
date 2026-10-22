@@ -1,13 +1,20 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "gow3_png.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
+#ifdef __APPLE__
+// gow3 (iOS): no FFmpeg; ImageIO decodes the PNG.
+#include <CoreGraphics/CoreGraphics.h>
+#include <ImageIO/ImageIO.h>
+#else
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
 }
+#endif
 
 namespace Gow3Png {
 
@@ -15,6 +22,51 @@ namespace {
 constexpr int kMaxSide = 4096; // save icons are 228x128; anything far larger is not one
 }
 
+#ifdef __APPLE__
+bool DecodeRgba(const unsigned char* data, size_t size, Image& out) {
+    out = {};
+    if (!data || !size || size > 64u << 20) {
+        return false;
+    }
+    CFDataRef bytes = CFDataCreate(nullptr, data, CFIndex(size));
+    CGImageSourceRef source = bytes ? CGImageSourceCreateWithData(bytes, nullptr) : nullptr;
+    CGImageRef image = source ? CGImageSourceCreateImageAtIndex(source, 0, nullptr) : nullptr;
+    const size_t width = image ? CGImageGetWidth(image) : 0, height = image ? CGImageGetHeight(image) : 0;
+    bool ok = width > 0 && height > 0 && width <= size_t(kMaxSide) && height <= size_t(kMaxSide);
+    if (ok) {
+        out.width = int(width);
+        out.height = int(height);
+        out.rgba.assign(width * height * 4, 0);
+        CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+        // Straight (unpremultiplied) RGBA8 is not a CGBitmapContext format: draw premultiplied and
+        // undo it, as FFmpeg's output was straight alpha.
+        CGContextRef context = CGBitmapContextCreate(out.rgba.data(), width, height, 8, width * 4, space,
+                                                     kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+        ok = context != nullptr;
+        if (ok) {
+            CGContextSetBlendMode(context, kCGBlendModeCopy);
+            CGContextDrawImage(context, CGRectMake(0, 0, CGFloat(width), CGFloat(height)), image);
+            CGContextRelease(context);
+            for (size_t i = 0; i < out.rgba.size(); i += 4) {
+                const unsigned a = out.rgba[i + 3];
+                if (a && a != 255) {
+                    for (size_t c = 0; c < 3; ++c) {
+                        out.rgba[i + c] = (unsigned char)std::min(255u, (out.rgba[i + c] * 255u + a / 2) / a);
+                    }
+                }
+            }
+        }
+        CGColorSpaceRelease(space);
+    }
+    if (image) CFRelease(image);
+    if (source) CFRelease(source);
+    if (bytes) CFRelease(bytes);
+    if (!ok) {
+        out = {};
+    }
+    return ok;
+}
+#else
 bool DecodeRgba(const unsigned char* data, size_t size, Image& out) {
     out = {};
     if (!data || !size || size > 64u << 20) {
@@ -56,6 +108,7 @@ bool DecodeRgba(const unsigned char* data, size_t size, Image& out) {
     }
     return ok;
 }
+#endif
 
 bool LoadRgba(const char* path, Image& out) {
     out = {};

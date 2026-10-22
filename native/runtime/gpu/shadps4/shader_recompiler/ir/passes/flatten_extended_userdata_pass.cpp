@@ -15,7 +15,9 @@
 #include <vector>
 #include "gow3_toggles.h"
 #endif
+#ifdef ARCH_X86_64 // gow3: Zydis disassembles the x86-64 walkers only
 #include "common/decoder.h"
+#endif
 #include "common/io_file.h"
 #include "common/logging/log.h"
 #include "common/path_util.h"

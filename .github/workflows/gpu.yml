@@ -1,0 +1,40 @@
+name: GPU library
+
+# Compiles the GPU library (native/runtime/gpu, shadPS4's video core) for iOS arm64 and lists every
+# compile error, until it builds and goes into the IPA.
+on:
+  push:
+    paths: ['native/runtime/gpu/**', 'native/cmake/**', 'native/scripts/build-ios.sh', 'native/scripts/fetch-submodules.sh', '.github/workflows/gpu.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-compile:
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Submodules and tools
+        run: |
+          native/scripts/fetch-submodules.sh
+          brew install ninja glslang boost
+      - name: Compile gow3gpu for iOS arm64
+        run: |
+          set -o pipefail
+          mkdir -p build
+          GOW3_BUILD=gpu-check native/scripts/build-ios.sh build/native-ios 2>&1 | tee build/gpu.log
+      - name: Errors
+        if: failure()
+        run: |
+          grep -E 'error:|FAILED:' build/gpu.log | sort | uniq -c | sort -rn | head -150 || true
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: gpu-log
+          path: build/gpu.log
+          if-no-files-found: ignore

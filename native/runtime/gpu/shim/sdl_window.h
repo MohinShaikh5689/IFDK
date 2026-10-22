@@ -49,4 +49,9 @@ private:
     WindowSystemInfo window_info{};
 };
 
+#ifdef __APPLE__
+/// gow3 (iOS): the screen's maximum refresh rate (ios/window_ios.mm).
+u32 DisplayRefreshHz();
+#endif
+
 } // namespace Frontend

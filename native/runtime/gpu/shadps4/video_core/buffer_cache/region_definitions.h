@@ -8,7 +8,12 @@
 
 namespace VideoCore {
 
+#ifdef __APPLE__
+// gow3 (iOS): pages are 16K; the guest pages the GPU protects cannot be smaller.
+constexpr u64 TRACKER_PAGE_BITS = 14;
+#else
 constexpr u64 TRACKER_PAGE_BITS = 12; // 4K pages
+#endif
 constexpr u64 TRACKER_BYTES_PER_PAGE = 1ULL << TRACKER_PAGE_BITS;
 
 constexpr u64 TRACKER_HIGHER_PAGE_BITS = 22; // each region is 4MB

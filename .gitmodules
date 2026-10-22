@@ -14,3 +14,9 @@
 [submodule "native/runtime/gpu/third_party/miniz"]
 	path = native/runtime/gpu/third_party/miniz
 	url = https://github.com/richgel999/miniz.git
+[submodule "native/third_party/VulkanMemoryAllocator"]
+	path = native/third_party/VulkanMemoryAllocator
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+[submodule "native/third_party/robin-map"]
+	path = native/third_party/robin-map
+	url = https://github.com/Tessil/robin-map.git
