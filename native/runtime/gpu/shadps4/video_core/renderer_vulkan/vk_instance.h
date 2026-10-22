@@ -308,6 +308,11 @@ public:
                features.shaderStorageImageExtendedFormats;
     }
 
+    /// gow3: a queue binds sparse memory (the buffer cache's arenas are sparse buffers then).
+    bool IsSparseBindingSupported() const {
+        return sparse_binding;
+    }
+
     /// gow3: robustness2 nullDescriptor (descriptors and vertex buffers may be VK_NULL_HANDLE).
     bool IsNullDescriptorSupported() const {
         return null_descriptor;
@@ -603,6 +608,7 @@ private:
     bool robust_buffer_access2{true};
     bool robust_image_access2{true};
     bool null_descriptor{true};
+    bool sparse_binding{true};
     bool supports_memory_budget{};
     bool supports_block_texel_view{};
     u64 total_memory_budget{};

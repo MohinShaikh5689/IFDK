@@ -20,14 +20,12 @@
 - App 0.1.9: **Start game** (graphics: Metal view over the app, two-finger double tap hides it) and **CPU only**.
 
 ## Next
-0. **Likely blocker: sparse buffers.** This shadPS4's BufferCache maps guest memory into sparse buffer arenas
-   (`GetArena`/`EnsureResident`: `bindSparse`, a BDA page table per 16 KiB block) and requires a sparse-binding
-   queue; there is no non-sparse path. MoltenVK may not expose sparse binding on iOS. The MoltenVK screen
-   test now reports `sparseBinding`, `sparseResidencyBuffer`, `bufferDeviceAddress` and `sparse_queue`; GPU
-   init logs "No queue family with sparse binding" if that is the case. If they are missing, the buffer
-   cache needs a non-sparse arena backend (e.g. arenas backed by ordinary device memory allocated per arena
-   page, or host-imported guest memory via VK_EXT_external_memory_host on unified memory).
-1. Device test of 0.1.9: Start game; read `Documents/gow3/loader.log` (GPU init, instance/device creation,
+0. **Sparse buffers: confirmed missing on the A19 (0.1.9 log), now handled (0.1.10).** Without a sparse queue,
+   BufferCache uses dense arenas: 64 MiB device-local buffers (`GOW3_ARENA_MB`, 16-1024) made when the GPU
+   first touches their range; EnsureResident only writes the BDA page table; a request crossing two arenas
+   merges them with a GPU copy (old arenas stay allocated). Watch "Migrating arena" and GPU memory in the log;
+   the alternative with no copies at all is importing guest memory (VK_EXT_external_memory_host is present).
+1. Device test of 0.1.10: Start game; read `Documents/gow3/loader.log` (GPU init, instance/device creation,
    the robustness2 warning, first `sceVideoOutOpen`, first frame). Full game files must be on the phone.
 2. Expected device issues: null *image* descriptors (vk_rasterizer.cpp binds VK_NULL_HANDLE image views for
    unbound textures; needs a dummy view per type if MoltenVK rejects them), sparse buffer arenas (MoltenVK has

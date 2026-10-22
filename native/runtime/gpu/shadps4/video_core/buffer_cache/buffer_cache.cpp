@@ -65,15 +65,29 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
         std::fill(null_buffer->mapped_data.begin(), null_buffer->mapped_data.end(), u8{0});
         null_buffer->Flush(0, null_buffer->SizeBytes());
     }
+    dense_arenas = !instance.IsSparseBindingSupported();
+    if (dense_arenas) {
+        arena_page_bits = DENSE_ARENA_PAGE_BITS;
+        if (const char* env = std::getenv("GOW3_ARENA_MB")) {
+            const u64 mb = std::clamp<u64>(std::strtoull(env, nullptr, 10), 16, 1024);
+            arena_page_bits = std::bit_width(mb) - 1 + 20;
+        }
+    }
     while (arena_page_bits > MIN_ARENA_PAGE_BITS &&
            (u64{2} << arena_page_bits) > instance.GetMaxBufferSize()) {
         --arena_page_bits;
     }
     arena_page_size = u64{1} << arena_page_bits;
     num_arena_pages = u64{1} << (ADDRESS_SPACE_BITS - arena_page_bits);
-    if (arena_page_bits != MAX_ARENA_PAGE_BITS) {
+    if (dense_arenas) {
+        LOG_WARNING(Render_Vulkan, "Dense buffer arenas of {} MiB (no sparse binding)",
+                    arena_page_size >> 20);
+    } else if (arena_page_bits != MAX_ARENA_PAGE_BITS) {
         LOG_INFO(Render_Vulkan, "Buffer arenas of {} MiB (driver buffer limit {} MiB)",
                  arena_page_size >> 20, instance.GetMaxBufferSize() >> 20);
+    }
+    if (dense_arenas) {
+        block_size = MIN_BLOCK_SIZE;
     }
     const vk::BufferCreateInfo probe_ci = {
         .flags =
@@ -86,17 +100,20 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
         .pCreateInfo = &probe_ci,
     };
     const auto device = instance.GetDevice();
-    const auto reqs = device.getBufferMemoryRequirements(req_info).memoryRequirements;
-    block_size = Common::AlignUp(std::max<u64>(reqs.alignment, MIN_BLOCK_SIZE), reqs.alignment);
+    if (!dense_arenas) {
+        const auto reqs = device.getBufferMemoryRequirements(req_info).memoryRequirements;
+        block_size =
+            Common::AlignUp(std::max<u64>(reqs.alignment, MIN_BLOCK_SIZE), reqs.alignment);
+        arena_memory_type_index =
+            FindMemoryType(instance.GetMemoryProperties(),
+                           vk::MemoryPropertyFlagBits::eDeviceLocal, reqs.memoryTypeBits)
+                .value();
+    }
     ASSERT_MSG(std::popcount(block_size) == 1, "Sparse block size {} is not a power of 2",
                block_size);
     block_shift = std::bit_width(block_size) - 1;
     blocks_per_arena_page = arena_page_size / block_size;
     blocks_per_arena_page_shift = arena_page_bits - block_shift;
-    arena_memory_type_index =
-        FindMemoryType(instance.GetMemoryProperties(), vk::MemoryPropertyFlagBits::eDeviceLocal,
-                       reqs.memoryTypeBits)
-            .value();
 
     const u64 bda_pagetable_size =
         (blocks_per_arena_page * num_arena_pages) * sizeof(vk::DeviceAddress);
@@ -400,11 +417,16 @@ void BufferCache::ProcessFaultBuffer() {
 }
 
 void BufferCache::SynchronizeDmaBuffers() {
+    // gow3: a resident range may cross arena pages (dense arenas merge adjacent ranges), so it
+    // is synchronized one arena page at a time.
     for (const auto& range : resident_ranges) {
-        const u64 page = range.start >> (arena_page_bits - block_shift);
-        const VAddr device_addr = range.start << block_shift;
-        const u64 size = (range.end - range.start) << block_shift;
-        SynchronizeMemory(address_space[page], device_addr, size, false, false);
+        for (u64 block = range.start; block < range.end;) {
+            const u64 page = block >> blocks_per_arena_page_shift;
+            const u64 end = std::min<u64>(range.end, (page + 1) << blocks_per_arena_page_shift);
+            SynchronizeMemory(address_space[page], block << block_shift,
+                              (end - block) << block_shift, false, false);
+            block = end;
+        }
     }
 }
 
@@ -420,9 +442,9 @@ const Buffer* BufferCache::GetArena(u64 first_block, u64 last_block) {
         if (!first_arena) {
             const u64 base_block = Common::AlignDownPow2<u64>(first_block, blocks_per_arena_page);
             const u64 num_pages = last_page - first_page + 1;
-            const auto* new_arena =
-                &arenas.emplace_back(instance, base_block << block_shift,
-                                     num_pages << arena_page_bits, MemoryType::Sparse);
+            const auto* new_arena = &arenas.emplace_back(
+                instance, base_block << block_shift, num_pages << arena_page_bits,
+                dense_arenas ? MemoryType::DeviceLocal : MemoryType::Sparse);
             address_space[first_page] = new_arena;
             address_space[last_page] = new_arena;
         }
@@ -438,9 +460,26 @@ const Buffer* BufferCache::GetArena(u64 first_block, u64 last_block) {
     const u64 base_block = first_addr >> block_shift;
     const u64 total_size = first_size + last_size;
     const u64 end_block = (first_addr + total_size) >> block_shift;
-    auto* new_arena = &arenas.emplace_back(instance, first_addr, total_size, MemoryType::Sparse);
-    auto* bind = BindsForArena(new_arena);
+    auto* new_arena = &arenas.emplace_back(instance, first_addr, total_size,
+                                           dense_arenas ? MemoryType::DeviceLocal
+                                                        : MemoryType::Sparse);
+    if (dense_arenas) {
+        // gow3: no shared backing to rebind: the old arenas' contents are copied into the new
+        // one, and the page table entries of their resident blocks point at it from now on.
+        // The old arenas stay allocated (commands in flight may use them); migrations are rare.
+        for (const Buffer* old : {first_arena, last_arena}) {
+            if (old) {
+                const vk::BufferCopy copy{0, old->cpu_addr - first_addr, old->size_bytes};
+                runtime.CopyBuffer(old, new_arena, std::span{&copy, 1});
+            }
+        }
+        WritePageTable(new_arena, base_block, end_block, true);
+    }
+    auto* bind = dense_arenas ? nullptr : BindsForArena(new_arena);
     resident_ranges.ForEachInRange(base_block, end_block, [&](const Backing& backing) {
+        if (!bind) {
+            return;
+        }
         const u64 start = std::max(base_block, backing.start);
         const u64 end = std::min(end_block, backing.end);
         bind->binds.push_back(vk::SparseMemoryBind{
@@ -474,6 +513,21 @@ void BufferCache::EnsureResident(const Buffer* arena, u64 first_block, u64 last_
         return;
     }
     Gow3Stats::Timer timer{Gow3Stats::t_resident};
+    if (dense_arenas) {
+        // gow3: the arena is fully backed; the blocks only need their page table entries.
+        for (const auto& range : bind_ranges) {
+            Backing backing;
+            backing.start = range.start;
+            backing.end = range.end;
+            backing.memory = VK_NULL_HANDLE;
+            backing.offset = range.start << block_shift;
+            resident_ranges.Add(backing);
+        }
+        for (const auto& range : bind_ranges) {
+            WritePageTable(arena, range.start, range.end, false);
+        }
+        return;
+    }
 
     const vk::MemoryAllocateInfo alloc_info = {
         .allocationSize = resident_blocks << block_shift,
@@ -515,6 +569,41 @@ void BufferCache::EnsureResident(const Buffer* arena, u64 first_block, u64 last_
         offset += copy_size;
     }
 
+    staging.Flush();
+    runtime.CopyBuffer(staging.buffer, bda_pagetable_buffer.get(), copies);
+}
+
+void BufferCache::WritePageTable(const Buffer* arena, u64 first_block, u64 end_block,
+                                 bool resident_only) {
+    boost::container::small_vector<std::pair<u64, u64>, 8> ranges;
+    if (resident_only) {
+        resident_ranges.ForEachInRange(first_block, end_block, [&](const Backing& backing) {
+            ranges.emplace_back(std::max(first_block, backing.start),
+                                std::min(end_block, backing.end));
+        });
+    } else {
+        ranges.emplace_back(first_block, end_block);
+    }
+    u64 blocks = 0;
+    for (const auto& [start, end] : ranges) {
+        blocks += end - start;
+    }
+    if (blocks == 0) {
+        return;
+    }
+    const auto staging =
+        staging_pool.Request(blocks * sizeof(vk::DeviceAddress), MemoryType::HostUncached);
+    auto* bda_addrs = reinterpret_cast<vk::DeviceAddress*>(staging.mapped);
+    boost::container::small_vector<vk::BufferCopy, 8> copies;
+    u64 offset = staging.offset;
+    for (const auto& [start, end] : ranges) {
+        for (u64 block = start; block < end; ++block) {
+            *(bda_addrs++) = arena->BufferDeviceAddress() + (block << block_shift) - arena->cpu_addr;
+        }
+        const u64 copy_size = (end - start) * sizeof(vk::DeviceAddress);
+        copies.emplace_back(offset, start * sizeof(vk::DeviceAddress), copy_size);
+        offset += copy_size;
+    }
     staging.Flush();
     runtime.CopyBuffer(staging.buffer, bda_pagetable_buffer.get(), copies);
 }

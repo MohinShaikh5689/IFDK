@@ -41,7 +41,10 @@ class BufferCache {
     // gow3: arena pages are 4 GiB unless the driver's buffer size limit is lower (AMD's
     // Windows driver: 2 GiB); an arena spans up to two pages, so they shrink to half the limit.
     static constexpr u64 MAX_ARENA_PAGE_BITS = 32;
-    static constexpr u64 MIN_ARENA_PAGE_BITS = 30;
+    static constexpr u64 MIN_ARENA_PAGE_BITS = 26;
+    // gow3 (no sparse binding, MoltenVK): arenas are ordinary allocations of this many address
+    // bits, made when the GPU first touches their range (GOW3_ARENA_MB overrides, 16-1024).
+    static constexpr u64 DENSE_ARENA_PAGE_BITS = 26;
     static constexpr u64 MAX_ARENA_PAGES = u64{1} << (ADDRESS_SPACE_BITS - MIN_ARENA_PAGE_BITS);
     static constexpr u64 MIN_BLOCK_SIZE = 16_KB;
 
@@ -135,6 +138,9 @@ private:
 
     void EnsureResident(const Buffer* arena, u64 first_block, u64 last_block);
 
+    /// gow3: points the page table entries of the resident blocks in [first, end) at `arena`.
+    void WritePageTable(const Buffer* arena, u64 first_block, u64 end_block, bool resident_only);
+
     void DownloadMemory(const Buffer* arena, VAddr device_addr, u64 size);
 
     bool SynchronizeMemory(const Buffer* arena, VAddr device_addr, u32 size, bool is_written,
@@ -194,6 +200,7 @@ private:
     IntervalList<Backing> resident_ranges;
 
     u32 arena_memory_type_index{};
+    bool dense_arenas{}; ///< gow3: no sparse binding, arenas are fully backed
     u32 block_size{};
     u32 block_shift{};
     u32 blocks_per_arena_page{};

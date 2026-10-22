@@ -497,12 +497,17 @@ bool Instance::CreateDevice() {
                 return family.queueCount && (family.queueFlags & vk::QueueFlagBits::eSparseBinding);
             });
         if (sparse_family == family_properties.end()) {
-            // gow3: the buffer cache's arenas are sparse buffers; say so (MoltenVK may lack them).
-            LOG_CRITICAL(Render_Vulkan, "No queue family with sparse binding: the buffer cache "
-                                        "needs sparse buffers");
+#ifdef __APPLE__
+            // gow3 (iOS): MoltenVK has no sparse binding; the buffer cache uses dense arenas.
+            LOG_WARNING(Render_Vulkan, "No sparse binding: buffer arenas are dense allocations");
+            sparse_binding = false;
+#else
+            LOG_CRITICAL(Render_Vulkan, "No queue family with sparse binding");
             return false;
+#endif
+        } else {
+            sparse_queue_family_index = static_cast<u32>(sparse_family - family_properties.begin());
         }
-        sparse_queue_family_index = static_cast<u32>(sparse_family - family_properties.begin());
     }
 
     static constexpr std::array queue_priorities = {1.0f};
