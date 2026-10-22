@@ -418,10 +418,24 @@ void EmitContext::DefineInputs() {
                 }
             }
         }
+#ifdef __APPLE__
+        // gow3 (iOS): MSL cannot declare perspective and no-perspective barycentrics in one shader
+        // (SPIRV-Cross: "Cannot declare both BaryCoordNV and BaryCoordNoPerspNV"), and the
+        // pipeline then fails to build (the game stopped when Kratos attacked). A shader that also
+        // uses perspective barycentrics reads its no-perspective ones from them: the same for
+        // screen-space work, slightly off across large perspective triangles.
+        const bool nopersp_from_persp = profile.supports_fragment_shader_barycentric &&
+                                        !profile.supports_amd_shader_explicit_vertex_parameter &&
+                                        ValidId(bary_coord);
+#else
+        const bool nopersp_from_persp = false;
+#endif
         if (info.loads.GetAny(IR::Attribute::BaryCoordNoPersp)) {
             if (profile.supports_amd_shader_explicit_vertex_parameter) {
                 bary_coord_nopersp = DefineVariable(F32[2], spv::BuiltIn::BaryCoordNoPerspAMD,
                                                     spv::StorageClass::Input);
+            } else if (nopersp_from_persp) {
+                bary_coord_nopersp = bary_coord;
             } else if (profile.supports_fragment_shader_barycentric) {
                 bary_coord_nopersp = DefineVariable(F32[3], spv::BuiltIn::BaryCoordNoPerspKHR,
                                                     spv::StorageClass::Input);
@@ -431,6 +445,8 @@ void EmitContext::DefineInputs() {
             if (profile.supports_amd_shader_explicit_vertex_parameter) {
                 bary_coord_nopersp_sample = DefineVariable(
                     F32[2], spv::BuiltIn::BaryCoordNoPerspSampleAMD, spv::StorageClass::Input);
+            } else if (nopersp_from_persp) {
+                bary_coord_nopersp_sample = bary_coord;
             } else if (profile.supports_fragment_shader_barycentric) {
                 bary_coord_nopersp_sample = DefineVariable(
                     F32[3], spv::BuiltIn::BaryCoordNoPerspKHR, spv::StorageClass::Input);
