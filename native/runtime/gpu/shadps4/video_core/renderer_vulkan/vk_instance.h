@@ -313,6 +313,11 @@ public:
         return sparse_binding;
     }
 
+    /// gow3: robustness2 robustBufferAccess2 (out-of-range buffer loads return 0).
+    bool IsRobustBufferAccess2Supported() const {
+        return robust_buffer_access2;
+    }
+
     /// gow3: robustness2 nullDescriptor (descriptors and vertex buffers may be VK_NULL_HANDLE).
     bool IsNullDescriptorSupported() const {
         return null_descriptor;

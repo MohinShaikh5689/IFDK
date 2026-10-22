@@ -377,6 +377,9 @@ public:
         return OpAccessChain(result_type, base, std::span<const Id>({indexes...}));
     }
 
+    /// Length of the run-time array that is member array_member of the structure structure points to.
+    Id OpArrayLength(Id result_type, Id structure, std::uint32_t array_member);
+
     /// Extract a single, dynamically selected, component of a vector.
     Id OpVectorExtractDynamic(Id result_type, Id vector, Id index);
 

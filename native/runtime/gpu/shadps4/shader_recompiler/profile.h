@@ -51,6 +51,9 @@ struct Profile {
     bool needs_integer_interpolation_fix{};
     bool needs_lds_barriers{};
     bool needs_buffer_offsets{};
+    /// gow3: no robustBufferAccess2 (MoltenVK): guest buffer accesses past the bound range are
+    /// checked in the shader, so loads return 0 and stores are dropped as on GCN.
+    bool needs_buffer_bounds_checks{};
     bool needs_unorm_fixup{};
     bool needs_clip_distance_emulation{};
     bool supports_shader_stencil_export{};

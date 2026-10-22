@@ -34,7 +34,7 @@
 
 namespace Serialization {
 /* You should increment versions below once corresponding serialization scheme is changed. */
-static constexpr u32 ShaderBinaryVersion = 8u; // gow3 (iOS): no-perspective barycentrics from perspective ones
+static constexpr u32 ShaderBinaryVersion = 9u; // gow3 (iOS): buffer bounds checks without robustBufferAccess2
 static constexpr u32 ShaderMetaVersion = 7u; // gow3: ImageResource::needs_native
 static constexpr u32 PipelineKeyVersion = 5u; // gow3: Info layout (ImageResource::needs_native)
 } // namespace Serialization
@@ -43,12 +43,15 @@ namespace Vulkan {
 
 namespace {
 // gow3: the test knobs that change recompiled SPIR-V (GOW3_LIGHTING_TEST=dref,
-// GOW3_AMD_PATHS_OFF=shaderext) get their own shader binary cache version.
+// GOW3_AMD_PATHS_OFF=shaderext, GOW3_BUFFER_BOUNDS) get their own shader binary cache version.
 u32 CurrentShaderBinaryVersion() {
+    const char* bounds = std::getenv("GOW3_BUFFER_BOUNDS");
+    const u32 bounds_salt = bounds ? (bounds[0] == '1' ? 4u : 8u) : 0u;
     return LightingTest::ShaderBinaryVersion(
         Serialization::ShaderBinaryVersion,
         LightingTest::ShaderBinarySalt(LightingTest::Current().dref,
-                                       AmdPathsOff::Current().shaderext));
+                                       AmdPathsOff::Current().shaderext) |
+            bounds_salt);
 }
 } // namespace
 

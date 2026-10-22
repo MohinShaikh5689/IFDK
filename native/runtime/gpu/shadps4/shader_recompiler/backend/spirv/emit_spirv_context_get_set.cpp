@@ -397,6 +397,46 @@ void EmitSetPatch(EmitContext& ctx, IR::Patch patch, Id value) {
     ctx.OpStore(pointer, value);
 }
 
+// gow3: without robustBufferAccess2 (MoltenVK) the shader does GCN's out-of-range behaviour:
+// loads past the bound range return 0 and stores past it are dropped. Metal would otherwise read
+// and write whatever follows the binding, which in the dense buffer arenas is other buffers.
+static bool ChecksBounds(EmitContext& ctx, const EmitContext::BufferDefinition& buffer) {
+    return ctx.profile.needs_buffer_bounds_checks && buffer.buffer_type == BufferType::Guest;
+}
+
+static Id InBounds(EmitContext& ctx, Id buffer_id, Id index) {
+    const Id length = ctx.OpArrayLength(ctx.U32[1], buffer_id, 0u);
+    return ctx.OpULessThan(ctx.U1[1], index, length);
+}
+
+static Id LoadElement(EmitContext& ctx, bool check, Id buffer_id, Id pointer_type, Id member,
+                      Id type, Id zero, Id index) {
+    if (!check) {
+        return ctx.OpLoad(type, ctx.OpAccessChain(pointer_type, buffer_id, member, index));
+    }
+    const Id in_bounds = InBounds(ctx, buffer_id, index);
+    const Id safe_index = ctx.OpSelect(ctx.U32[1], in_bounds, index, ctx.u32_zero_value);
+    const Id value = ctx.OpLoad(type, ctx.OpAccessChain(pointer_type, buffer_id, member, safe_index));
+    return ctx.OpSelect(type, in_bounds, value, zero);
+}
+
+static void StoreElement(EmitContext& ctx, bool check, Id buffer_id, Id pointer_type, Id member,
+                         Id index, Id value) {
+    if (!check) {
+        ctx.OpStore(ctx.OpAccessChain(pointer_type, buffer_id, member, index), value);
+        return;
+    }
+    const Id in_bounds = InBounds(ctx, buffer_id, index);
+    const Id store_label = ctx.OpLabel();
+    const Id merge_label = ctx.OpLabel();
+    ctx.OpSelectionMerge(merge_label, spv::SelectionControlMask::MaskNone);
+    ctx.OpBranchConditional(in_bounds, store_label, merge_label);
+    ctx.AddLabel(store_label);
+    ctx.OpStore(ctx.OpAccessChain(pointer_type, buffer_id, member, index), value);
+    ctx.OpBranch(merge_label);
+    ctx.AddLabel(merge_label);
+}
+
 template <u32 N, PointerType alias>
 static Id EmitLoadBufferB32xN(EmitContext& ctx, IR::Inst* inst, u32 handle, Id address) {
     const auto& spv_buffer = ctx.buffers[handle];
@@ -404,14 +444,15 @@ static Id EmitLoadBufferB32xN(EmitContext& ctx, IR::Inst* inst, u32 handle, Id a
         address = ctx.OpIAdd(ctx.U32[1], address, offset);
     }
     const auto& data_types = alias == PointerType::U32 ? ctx.U32 : ctx.F32;
+    const Id zero = alias == PointerType::U32 ? ctx.u32_zero_value : ctx.f32_zero_value;
+    const bool check = ChecksBounds(ctx, spv_buffer);
     const auto [id, pointer_type] = spv_buffer.Alias(alias);
 
     boost::container::static_vector<Id, N> ids;
     for (u32 i = 0; i < N; i++) {
         const Id index_i = i == 0 ? address : ctx.OpIAdd(ctx.U32[1], address, ctx.ConstU32(i));
-        const Id ptr_i = ctx.OpAccessChain(pointer_type, id, ctx.u32_zero_value, index_i);
-        const Id result_i = ctx.OpLoad(data_types[1], ptr_i);
-        ids.push_back(result_i);
+        ids.push_back(LoadElement(ctx, check, id, pointer_type, ctx.u32_zero_value, data_types[1],
+                                  zero, index_i));
     }
 
     const Id result = N == 1 ? ids[0] : ctx.OpCompositeConstruct(data_types[N], ids);
@@ -424,9 +465,8 @@ Id EmitLoadBufferU8(EmitContext& ctx, IR::Inst* inst, u32 handle, Id address) {
         address = ctx.OpIAdd(ctx.U32[1], address, offset);
     }
     const auto [id, pointer_type] = spv_buffer.Alias(PointerType::U8);
-    const Id ptr{ctx.OpAccessChain(pointer_type, id, ctx.u32_zero_value, address)};
-    const Id result{ctx.OpLoad(ctx.U8, ptr)};
-    return result;
+    return LoadElement(ctx, ChecksBounds(ctx, spv_buffer), id, pointer_type, ctx.u32_zero_value, ctx.U8,
+                       ctx.u8_zero_value, address);
 }
 
 Id EmitLoadBufferU16(EmitContext& ctx, IR::Inst* inst, u32 handle, Id address) {
@@ -435,9 +475,8 @@ Id EmitLoadBufferU16(EmitContext& ctx, IR::Inst* inst, u32 handle, Id address) {
         address = ctx.OpIAdd(ctx.U32[1], address, offset);
     }
     const auto [id, pointer_type] = spv_buffer.Alias(PointerType::U16);
-    const Id ptr{ctx.OpAccessChain(pointer_type, id, ctx.u32_zero_value, address)};
-    const Id result{ctx.OpLoad(ctx.U16, ptr)};
-    return result;
+    return LoadElement(ctx, ChecksBounds(ctx, spv_buffer), id, pointer_type, ctx.u32_zero_value, ctx.U16,
+                       ctx.u16_zero_value, address);
 }
 
 Id EmitLoadBufferU32(EmitContext& ctx, IR::Inst* inst, u32 handle, Id address) {
@@ -462,9 +501,8 @@ Id EmitLoadBufferU64(EmitContext& ctx, IR::Inst* inst, u32 handle, Id address) {
         address = ctx.OpIAdd(ctx.U32[1], address, offset);
     }
     const auto [id, pointer_type] = spv_buffer.Alias(PointerType::U64);
-    const Id ptr{ctx.OpAccessChain(pointer_type, id, ctx.u64_zero_value, address)};
-    const Id result{ctx.OpLoad(ctx.U64, ptr)};
-    return result;
+    return LoadElement(ctx, ChecksBounds(ctx, spv_buffer), id, pointer_type, ctx.u64_zero_value, ctx.U64,
+                       ctx.u64_zero_value, address);
 }
 
 Id EmitLoadBufferF32(EmitContext& ctx, IR::Inst* inst, u32 handle, Id address) {
@@ -495,13 +533,13 @@ static void EmitStoreBufferB32xN(EmitContext& ctx, IR::Inst* inst, u32 handle, I
         address = ctx.OpIAdd(ctx.U32[1], address, offset);
     }
     const auto& data_types = alias == PointerType::U32 ? ctx.U32 : ctx.F32;
+    const bool check = ChecksBounds(ctx, spv_buffer);
     const auto [id, pointer_type] = spv_buffer.Alias(alias);
 
     for (u32 i = 0; i < N; i++) {
         const Id index_i = i == 0 ? address : ctx.OpIAdd(ctx.U32[1], address, ctx.ConstU32(i));
-        const Id ptr_i = ctx.OpAccessChain(pointer_type, id, ctx.u32_zero_value, index_i);
         const Id value_i = N == 1 ? value : ctx.OpCompositeExtract(data_types[1], value, i);
-        ctx.OpStore(ptr_i, value_i);
+        StoreElement(ctx, check, id, pointer_type, ctx.u32_zero_value, index_i, value_i);
     }
 }
 
@@ -511,8 +549,7 @@ void EmitStoreBufferU8(EmitContext& ctx, IR::Inst*, u32 handle, Id address, Id v
         address = ctx.OpIAdd(ctx.U32[1], address, offset);
     }
     const auto [id, pointer_type] = spv_buffer.Alias(PointerType::U8);
-    const Id ptr{ctx.OpAccessChain(pointer_type, id, ctx.u32_zero_value, address)};
-    ctx.OpStore(ptr, value);
+    StoreElement(ctx, ChecksBounds(ctx, spv_buffer), id, pointer_type, ctx.u32_zero_value, address, value);
 }
 
 void EmitStoreBufferU16(EmitContext& ctx, IR::Inst*, u32 handle, Id address, Id value) {
@@ -521,8 +558,7 @@ void EmitStoreBufferU16(EmitContext& ctx, IR::Inst*, u32 handle, Id address, Id 
         address = ctx.OpIAdd(ctx.U32[1], address, offset);
     }
     const auto [id, pointer_type] = spv_buffer.Alias(PointerType::U16);
-    const Id ptr{ctx.OpAccessChain(pointer_type, id, ctx.u32_zero_value, address)};
-    ctx.OpStore(ptr, value);
+    StoreElement(ctx, ChecksBounds(ctx, spv_buffer), id, pointer_type, ctx.u32_zero_value, address, value);
 }
 
 void EmitStoreBufferU32(EmitContext& ctx, IR::Inst* inst, u32 handle, Id address, Id value) {
@@ -547,8 +583,7 @@ void EmitStoreBufferU64(EmitContext& ctx, IR::Inst*, u32 handle, Id address, Id 
         address = ctx.OpIAdd(ctx.U32[1], address, offset);
     }
     const auto [id, pointer_type] = spv_buffer.Alias(PointerType::U64);
-    const Id ptr{ctx.OpAccessChain(pointer_type, id, ctx.u64_zero_value, address)};
-    ctx.OpStore(ptr, value);
+    StoreElement(ctx, ChecksBounds(ctx, spv_buffer), id, pointer_type, ctx.u64_zero_value, address, value);
 }
 
 void EmitStoreBufferF32(EmitContext& ctx, IR::Inst* inst, u32 handle, Id address, Id value) {
