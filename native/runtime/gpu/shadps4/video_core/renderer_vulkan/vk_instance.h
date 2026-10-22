@@ -308,6 +308,11 @@ public:
                features.shaderStorageImageExtendedFormats;
     }
 
+    /// gow3: robustness2 nullDescriptor (descriptors and vertex buffers may be VK_NULL_HANDLE).
+    bool IsNullDescriptorSupported() const {
+        return null_descriptor;
+    }
+
     /// gow3: FSR 4.1.1 (INT8 model passes and VK_VALVE_shader_mixed_float_dot_product).
     bool IsFsr411Supported() const {
         return IsFsr4Int8Supported() && mixed_float_dot_product;
@@ -594,6 +599,10 @@ private:
     bool amd_shader_info{};                // gow3: with it, VK_AMD_shader_info when present
     bool compute_shader_derivatives{};
     bool mixed_float_dot_product{}; // gow3: VK_VALVE_shader_mixed_float_dot_product (FSR 4.1.1)
+    // gow3: required everywhere but on Apple GPUs (MoltenVK), where they may be missing.
+    bool robust_buffer_access2{true};
+    bool robust_image_access2{true};
+    bool null_descriptor{true};
     bool supports_memory_budget{};
     bool supports_block_texel_view{};
     u64 total_memory_budget{};

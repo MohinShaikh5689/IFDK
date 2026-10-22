@@ -1903,7 +1903,7 @@ void Rasterizer::ResolveVertexBuffers(const GraphicsPipeline* pipeline,
             host_offsets.push_back(host_buffer_info->offset + buffer.base_address -
                                    host_buffer_info->base_address);
         } else {
-            host_buffers.emplace_back(VK_NULL_HANDLE);
+            host_buffers.emplace_back(buffer_cache.NullBufferOr(VK_NULL_HANDLE));
             host_offsets.push_back(0);
         }
         host_sizes.push_back(buffer.GetSize());
@@ -2152,7 +2152,7 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
                 // Permutations compiled without enabled planes never read the buffer, so the
                 // declared binding is satisfied with a null descriptor instead of a copy.
                 if (Regs().clipper_control.user_clip_plane_enable == 0) {
-                    buffer_infos.emplace_back(VK_NULL_HANDLE, 0, VK_WHOLE_SIZE);
+                    buffer_infos.emplace_back(buffer_cache.NullBufferOr(VK_NULL_HANDLE), 0, VK_WHOLE_SIZE);
                 } else {
                     auto& vk_buffer = buffer_cache.GetStreamBuffer();
                     std::array<float, AmdGpu::NUM_CLIP_PLANES * 4> planes{};
@@ -2210,7 +2210,7 @@ void Rasterizer::BindBuffers(const Shader::Info& stage, const PreparedStage* pre
                                      memory->ClampRangeSize(vsharp.base_address, vsharp.GetSize()));
             }
             if (vsharp.base_address == 0 || vsharp.GetSize() == 0) {
-                buffer_infos.emplace_back(VK_NULL_HANDLE, 0, VK_WHOLE_SIZE);
+                buffer_infos.emplace_back(buffer_cache.NullBufferOr(VK_NULL_HANDLE), 0, VK_WHOLE_SIZE);
             } else {
                 const u64 size = memory->ClampRangeSize(vsharp.base_address, vsharp.GetSize());
                 if (size != vsharp.GetSize()) {

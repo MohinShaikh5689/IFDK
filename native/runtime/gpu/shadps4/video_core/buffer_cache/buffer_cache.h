@@ -55,6 +55,11 @@ public:
                          TextureCache& texture_cache, PageManager& tracker);
     ~BufferCache();
 
+    /// gow3: zeroed buffer bound where a null buffer would be, without nullDescriptor (MoltenVK).
+    [[nodiscard]] vk::Buffer NullBufferOr(vk::Buffer buffer) const noexcept {
+        return buffer || !null_buffer ? buffer : null_buffer->Handle();
+    }
+
     /// Returns a pointer to GDS device local buffer.
     [[nodiscard]] const Buffer* GetGdsBuffer() const noexcept {
         return &gds_buffer;
@@ -162,6 +167,7 @@ private:
 
     StreamBuffer stream_buffer;
     Buffer gds_buffer;
+    std::unique_ptr<Buffer> null_buffer; ///< gow3: only without nullDescriptor
     RangeSet gpu_modified_ranges;
 
     std::unique_ptr<FaultManager> fault_manager;
