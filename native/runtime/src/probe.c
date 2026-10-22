@@ -293,7 +293,32 @@ static void fault(int sig, siginfo_t *info, void *context) {
 #endif
     /* GPU page tracking (write-protected guest pages) is resolved first. */
     /* Darwin reports writes to write-protected pages as SIGBUS. */
+#ifndef __APPLE__
     if (gpu_enabled && (sig == SIGSEGV || sig == SIGBUS) && gow3gpu_handle_fault(context, info->si_addr)) return;
+#else
+    /* The GPU trackers protect 16K host pages that several resources share: one of them can claim a
+     * write fault without the page becoming writable, and the store then faults forever (the game
+     * hangs with its thread "running"). After 64 claimed faults in a row on one page, that page (and
+     * the next, for a store that may cross into it) is made writable; the GPU may then miss CPU
+     * writes there, which is better than a hang. */
+    if (gpu_enabled && (sig == SIGSEGV || sig == SIGBUS) && gow3gpu_handle_fault(context, info->si_addr)) {
+        static uintptr_t repeat_page;
+        static unsigned repeat_count;
+        const uintptr_t address = (uintptr_t)info->si_addr, page = address & ~(uintptr_t)(page_size - 1);
+        if (__atomic_exchange_n(&repeat_page, page, __ATOMIC_RELAXED) != page) {
+            __atomic_store_n(&repeat_count, 1, __ATOMIC_RELAXED);
+        } else if (__atomic_add_fetch(&repeat_count, 1, __ATOMIC_RELAXED) == 64) {
+            const size_t span = address + 64 > page + page_size ? 2 * page_size : page_size;
+            const int e = mprotect((void *)page, span, PROT_READ | PROT_WRITE) ? errno : 0;
+            char line[160];
+            snprintf(line, sizeof(line), "GPU tracking: 64 write faults in a row at %p (host pc %p); page made writable (%s)\n",
+                     info->si_addr, (void *)guest_cpu_host_pc(context), e ? strerror(e) : "ok");
+            ssize_t written_ = write(2, line, strlen(line)); (void)written_;
+            __atomic_store_n(&repeat_page, 0, __ATOMIC_RELAXED);
+        }
+        return;
+    }
+#endif
     /* A speculative guest memory read (runtime_memory.c) failed: resume its recovery point. */
     if ((sig == SIGSEGV || sig == SIGBUS) && runtime_fault_recover) {
         sigjmp_buf *recover = runtime_fault_recover;
