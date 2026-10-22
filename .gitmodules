@@ -20,3 +20,6 @@
 [submodule "native/third_party/robin-map"]
 	path = native/third_party/robin-map
 	url = https://github.com/Tessil/robin-map.git
+[submodule "native/third_party/Vulkan-Headers"]
+	path = native/third_party/Vulkan-Headers
+	url = https://github.com/KhronosGroup/Vulkan-Headers.git

@@ -94,7 +94,7 @@ target_include_directories(gow3gpu PRIVATE
     "${GOW3_NATIVE}/include"
     "${GOW3_NATIVE}/third_party/VulkanMemoryAllocator/include"
     "${GOW3_NATIVE}/third_party/robin-map/include"
-    "${CMAKE_SOURCE_DIR}/External/Vulkan-Headers/include"
+    "${GOW3_NATIVE}/third_party/Vulkan-Headers/include" # v1.4.344 as in gow3_android; FEX's is older
     "${GOW3_BOOST_INCLUDE}"
     "${GOW3_SDL3_INCLUDE}")
 target_compile_definitions(gow3gpu PRIVATE BOOST_ASIO_STANDALONE NDEBUG IMGUI_IMPL_VULKAN_NO_PROTOTYPES
