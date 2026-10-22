@@ -76,5 +76,7 @@ Expo (React Native) app shell: launcher, dump import via Files app, settings, JI
 5. Get MoltenVK rendering with shadPS4's video core, then boot GoW3. IN PROGRESS.
    MoltenVK screen test passes on the device. `native/runtime/gpu` (gow3_android gpu/, iOS commits after the
    import) builds as libgow3gpu.a (`native/cmake/gow3gpu.cmake`, CI `.github/workflows/gpu.yml`) and is linked
-   into the app (0.1.9 "Start game"). Next: first device run; see docs/NEXT.md.
+   into the app (0.1.9 "Start game"). 0.1.18 (2026-10-22) boots GoW3 on the iPhone 17 to the brightness screen,
+   menus and intro video with DualSense input; it crashes on New Game. See docs/NEXT.md.
+   Darwin reports writes to protected pages as SIGBUS/BUS_ADRALN: only ESR alignment faults may go to FEXCore.
 6. Tune memory to fit 8 GB, and tune performance and thermals.

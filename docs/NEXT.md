@@ -1,4 +1,39 @@
-# Next tasks (handover, 2026-10-22 evening)
+# Next tasks (handover, 2026-10-22 night)
+
+## State on the device (0.1.18, full game CUSA01715 + 01.02 on the phone)
+**The game boots and plays its intro**: brightness screen, DualSense input, menus, cutscene video with
+FFmpeg. It crashes when **New Game** is chosen (below).
+
+The black-screen hang of 0.1.15-0.1.17, and its fix (0.1.18, `native/cpu/guest_cpu_fex_darwin.cpp`):
+- Darwin reports a write to a protected page as SIGBUS / `BUS_ADRALN`, the code of an alignment fault.
+  `guest_cpu_handle_fault` sent it to FEXCore's `HandleUnalignedAccess`, whose "already backpatched by
+  another thread" check returns 0 (run it again) for a plain STR. A zero store to a page that GPU page
+  tracking protects (game offset `0x1a55de`) then faulted ~600,000 times a second and the tracker never saw
+  it: black screen, phone hot. Now only ESR data fault status `0b100001` (alignment) goes to FEXCore.
+- The first boot of the day got past it by luck: its faulting store was an STP, which FEXCore logs as
+  `Unhandled JIT SIGBUS` and passes on to the tracker.
+- 0.1.16 added the tools that found it: the loader dump samples the pc 16 times with the fault count around
+  the samples, prints library+offset for `<redacted>` system symbols and maps JIT addresses to game offsets
+  (`gow3_guest_rip_at`); probe.c counts every fault; a watchdog (`GOW3_FRAME_WATCHDOG=60`, graphics only)
+  dumps the threads after 60 s without a flip and ends the app after 180 s; fault storms (>1000/s) are
+  logged; thermal state changes go to the log; game files are excluded from backup.
+- 0.1.17 (kept as a safety net, did not fire): 64 claimed GPU-tracking faults in a row on one page make
+  the page writable (`probe.c`, logs `GPU tracking: 64 write faults in a row`).
+
+## Next
+1. **New Game crash** (log of 2026-10-22 17:04 UTC): FEXCore `[iOS-noexec]` at game offset `0x23f8600`
+   (image + 0x23f8600 = 0x70024fc600), then `Guest fault (signal 11) ... address 0x0`. The image ends at
+   0x1da483c (eboot + modules 0 and 1), so the target is outside any registered code range
+   (`QueryGuestExecutableRange` = the image + the trap page): most likely a bad function pointer. 4 s
+   before, iOS sent a critical memory warning (`TRIM_MEMORY_RUNNING_CRITICAL`) and the thermal state was
+   `serious`; no failed allocation is logged. The stack-scan return addresses are stale. To find the caller:
+   log the last guest block entries (or the indirect branch source) when NoExec fires, check what the
+   runtime mapped at that address (flexible/direct memory map log), and measure `phys_footprint` at the
+   time. Compare with the same step on gow3_android if possible.
+2. Performance and heat (now measurable in real play): 30 fps cap, lower render resolution + MetalFX,
+   PAUSE spin loops, thread QoS, thermal-state adaptation, `FEX E:` debug noise.
+3. AltStore shows the JIT helper expiring a day before the app; the installed profiles (`ideviceprovision`)
+   show both renewed together each time, so it is only AltStore's display.
 
 ## GPU step 2: shadPS4's video core in the app (this branch)
 - `native/runtime/gpu/` is gow3_android `gpu/` (imported unmodified, then iOS commits marked `gow3 (iOS)`).
