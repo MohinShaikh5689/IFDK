@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useState } from 'react';
-import { AppState, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AppState, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 
 import Gow3Core from './modules/gow3-core/src/Gow3CoreModule';
 
@@ -213,6 +213,15 @@ export default function App() {
               disabled={busy}
             />
           ) : null}
+          <Button
+            title="Copy logs"
+            onPress={() => {
+              // The share sheet has Copy (and AirDrop, Notes, ...): no clipboard module is built in.
+              const text = Gow3Core.readGameLog();
+              if (text) Share.share({ message: text }).catch(() => {});
+            }}
+            disabled={!gameLog}
+          />
           <Button
             title="Clear game log"
             onPress={() => {
