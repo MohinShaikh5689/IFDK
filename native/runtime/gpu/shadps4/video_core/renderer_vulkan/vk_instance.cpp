@@ -497,6 +497,9 @@ bool Instance::CreateDevice() {
                 return family.queueCount && (family.queueFlags & vk::QueueFlagBits::eSparseBinding);
             });
         if (sparse_family == family_properties.end()) {
+            // gow3: the buffer cache's arenas are sparse buffers; say so (MoltenVK may lack them).
+            LOG_CRITICAL(Render_Vulkan, "No queue family with sparse binding: the buffer cache "
+                                        "needs sparse buffers");
             return false;
         }
         sparse_queue_family_index = static_cast<u32>(sparse_family - family_properties.begin());
