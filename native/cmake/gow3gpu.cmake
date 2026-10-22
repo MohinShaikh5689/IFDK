@@ -7,17 +7,8 @@
 #   linked as a library only (no SDL video), for the overlay's event types and later audio/pads;
 # - no Zydis/xbyak: the x86-64 SRT walker JIT is not built on ARM64 (it interprets the walkers).
 set(GOW3_GPU "${GOW3_NATIVE}/runtime/gpu")
-enable_language(OBJCXX)
 find_program(GLSLANG_COMPILER NAMES glslang glslangValidator REQUIRED)
-
-set(SIRIT_USE_SYSTEM_SPIRV_HEADERS OFF CACHE BOOL "" FORCE)
-add_subdirectory("${GOW3_GPU}/third_party/sirit" "${CMAKE_BINARY_DIR}/gow3gpu/sirit" EXCLUDE_FROM_ALL)
-set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(BUILD_FUZZERS OFF CACHE BOOL "" FORCE)
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-add_subdirectory("${GOW3_GPU}/third_party/miniz" "${CMAKE_BINARY_DIR}/gow3gpu/miniz" EXCLUDE_FROM_ALL)
-unset(CMAKE_POLICY_VERSION_MINIMUM)
+# OBJCXX, sirit and miniz: gow3gpu_deps.cmake (deferred code cannot enable languages or add directories).
 
 # Host shaders -> headers (the same list and scheme as gpu/CMakeLists.txt).
 set(GOW3_SHADER_SRC "${GOW3_GPU}/shadps4/video_core/host_shaders")

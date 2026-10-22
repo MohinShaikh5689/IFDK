@@ -25,7 +25,16 @@
 #include "video_core/renderer_vulkan/vk_dlss.h"
 
 #ifdef __APPLE__
+#include <TargetConditionals.h>
 #include <mach-o/dyld.h>
+#endif
+#if defined(__APPLE__) && TARGET_OS_IOS
+// gow3 (iOS): MoltenVK is linked statically (an app cannot load a Vulkan loader or ICD), so the
+// dispatcher starts from its own vkGetInstanceProcAddr. A distinct name keeps clear of vulkan.h's
+// prototype, which VK_NO_PROTOTYPES may or may not hide.
+extern "C" PFN_vkVoidFunction Gow3MoltenVkGetInstanceProcAddr(VkInstance instance,
+                                                              const char* name) __asm__(
+    "_vkGetInstanceProcAddr");
 #endif
 
 namespace Vulkan {
@@ -259,6 +268,9 @@ vk::UniqueInstance CreateInstance(Frontend::WindowSystemType window_type, bool e
                                   bool enable_crash_diagnostic) {
     LOG_INFO(Render_Vulkan, "Creating vulkan instance");
 
+#if defined(__APPLE__) && TARGET_OS_IOS
+    VULKAN_HPP_DEFAULT_DISPATCHER.init(&Gow3MoltenVkGetInstanceProcAddr);
+#else
 #if defined(__APPLE__)
     // Initialize the environment with the path to the included ICD, so that the loader will
     // find it.
@@ -274,6 +286,7 @@ vk::UniqueInstance CreateInstance(Frontend::WindowSystemType window_type, bool e
     static vk::detail::DynamicLoader dl;
     VULKAN_HPP_DEFAULT_DISPATCHER.init(
         dl.getProcAddress<PFN_vkGetInstanceProcAddr>("vkGetInstanceProcAddr"));
+#endif
 
     const auto [available_version_result, available_version] =
         VULKAN_HPP_DEFAULT_DISPATCHER.vkEnumerateInstanceVersion
