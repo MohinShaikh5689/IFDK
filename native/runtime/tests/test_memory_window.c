@@ -25,8 +25,8 @@ int runtime_memory_write_backing(uintptr_t address, const void *data, uint64_t s
 
 #define LOW_MIN UINT64_C(0x7000000000)
 #define BACKING_MIN UINT64_C(0x7100000000)
-#define USER_MIN UINT64_C(0x7400000000)
-#define USER_MAX UINT64_C(0x8000000000)
+#define USER_MIN UINT64_C(0x7300000000)
+#define USER_MAX UINT64_C(0x7A00000000)
 #define MiB (UINT64_C(1)<<20)
 typedef int32_t (*Allocate)(int64_t, int64_t, uint64_t, uint64_t, int, int64_t *);
 typedef int32_t (*Map)(void **, uint64_t, int, int, int64_t, uint64_t);
