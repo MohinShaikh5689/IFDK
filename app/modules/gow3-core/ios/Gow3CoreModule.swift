@@ -132,6 +132,11 @@ public class Gow3CoreModule: Module {
     // The GPU library's settings (gow3.ini, written by its menu) next to the saves; the working
     // directory is read-only on iOS.
     setenv("GOW3_CONFIG", user + "/gow3.ini", 0)
+    // Direct memory: retail 5056 MiB + the 2048 MiB that gow3's default patch (Texture Corruption Fix,
+    // a larger Video Arena) asks for, as run.py derives it on the PC. With 5056 the game's 2.45 GB
+    // video arena allocation fails and it dereferences the missing pointer. The pool is file-backed,
+    // so this costs no app memory until pages are written.
+    setenv("GOW3_DMEM_MB", "7104", 0)
     let log = gameLogURL.path
     try? "--- \(Date()) start: \(args.joined(separator: " "))\n".appendLine(to: log)
     let cStrings = args.map { strdup($0) }
