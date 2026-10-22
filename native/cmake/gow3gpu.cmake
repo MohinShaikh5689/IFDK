@@ -102,5 +102,6 @@ target_compile_definitions(gow3gpu PRIVATE BOOST_ASIO_STANDALONE NDEBUG IMGUI_IM
 set_source_files_properties("${GOW3_GPU}/shim/gow3_overlay.cpp" PROPERTIES
     OBJECT_DEPENDS "${GOW3_GPU}/third_party/fonts/DejaVuSans.ttf")
 target_compile_options(gow3gpu PRIVATE -fno-omit-frame-pointer -Wno-deprecated-declarations
-    -Wno-missing-field-initializers $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    -Wno-missing-field-initializers $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>
+    "$<$<COMPILE_LANGUAGE:CXX,OBJCXX>:SHELL:-include ${GOW3_GPU}/ios/gow3_darwin_compat.h>")
 target_link_libraries(gow3gpu PRIVATE fmt::fmt xxHash::xxhash miniz sirit)

@@ -9,6 +9,9 @@
 #ifdef _WIN32
 #include <windows.h>
 #undef near
+#elif defined(__APPLE__)
+#include <sys/ucontext.h> // gow3 (iOS): <ucontext.h> wants _XOPEN_SOURCE
+#include <unistd.h>
 #else
 #include <ucontext.h>
 #include <unistd.h>
