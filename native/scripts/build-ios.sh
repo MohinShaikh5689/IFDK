@@ -27,7 +27,7 @@ MOLTENVK_SHA256=b5d947b1660e6e9fed40b9cd2387e160aaab9e80b775c0cef7e14059405178c1
 MOLTENVK="$OUT/moltenvk"
 if [ ! -f "$MOLTENVK/MoltenVK/MoltenVK/static/MoltenVK.xcframework/ios-arm64/libMoltenVK.a" ]; then
   mkdir -p "$MOLTENVK"
-  curl -fsSL -o "$MOLTENVK/MoltenVK-ios.tar" \
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$MOLTENVK/MoltenVK-ios.tar" \
     "https://github.com/KhronosGroup/MoltenVK/releases/download/$MOLTENVK_VERSION/MoltenVK-ios.tar"
   echo "$MOLTENVK_SHA256  $MOLTENVK/MoltenVK-ios.tar" | shasum -a 256 -c -
   tar -xf "$MOLTENVK/MoltenVK-ios.tar" -C "$MOLTENVK"
@@ -41,7 +41,7 @@ SDL3_SHA256=81cc0fc17e5bf2c1754eeca9af9c47a76789ac5efdd165b3b91cbbe4b90bfb76
 SDL3="$OUT/sdl3/SDL3-$SDL3_VERSION"
 if [ ! -f "$SDL3/include/SDL3/SDL.h" ]; then
   mkdir -p "$OUT/sdl3"
-  curl -fsSL -o "$OUT/sdl3/SDL3.tar.gz" \
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$OUT/sdl3/SDL3.tar.gz" \
     "https://github.com/libsdl-org/SDL/releases/download/release-$SDL3_VERSION/SDL3-$SDL3_VERSION.tar.gz"
   echo "$SDL3_SHA256  $OUT/sdl3/SDL3.tar.gz" | shasum -a 256 -c -
   tar -xzf "$OUT/sdl3/SDL3.tar.gz" -C "$OUT/sdl3"
@@ -64,7 +64,7 @@ FFMPEG="$OUT/ffmpeg"
 if [ "${GOW3_BUILD:-}" != gpu-check ] && [ ! -f "$FFMPEG/lib/libavcodec.a" ]; then
   FFMPEG_SRC="$OUT-ffmpeg"
   mkdir -p "$FFMPEG_SRC"
-  curl -fsSL -o "$FFMPEG_SRC/ffmpeg.tar.xz" "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$FFMPEG_SRC/ffmpeg.tar.xz" "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
   echo "$FFMPEG_SHA256  $FFMPEG_SRC/ffmpeg.tar.xz" | shasum -a 256 -c -
   tar -xf "$FFMPEG_SRC/ffmpeg.tar.xz" -C "$FFMPEG_SRC"
   IOS_SDK=$(xcrun -sdk iphoneos --show-sdk-path)
