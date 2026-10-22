@@ -5,3 +5,12 @@
 [submodule "native/runtime/third_party/LibAtrac9"]
 	path = native/runtime/third_party/LibAtrac9
 	url = https://github.com/Thealexbarney/LibAtrac9.git
+[submodule "native/runtime/gpu/third_party/imgui"]
+	path = native/runtime/gpu/third_party/imgui
+	url = https://github.com/ocornut/imgui.git
+[submodule "native/runtime/gpu/third_party/magic_enum"]
+	path = native/runtime/gpu/third_party/magic_enum
+	url = https://github.com/Neargye/magic_enum.git
+[submodule "native/runtime/gpu/third_party/miniz"]
+	path = native/runtime/gpu/third_party/miniz
+	url = https://github.com/richgel999/miniz.git
