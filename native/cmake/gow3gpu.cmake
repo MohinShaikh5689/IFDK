@@ -71,6 +71,7 @@ add_library(gow3gpu STATIC
     "${GOW3_GPU}/shadps4/common/string_util.cpp"
     "${GOW3_GPU}/shadps4/common/thread.cpp"
     "${GOW3_GPU}/shadps4/common/signal_context.cpp"
+    "${GOW3_GPU}/shim/common/logging/log.cpp"
     "${GOW3_GPU}/shadps4/core/libraries/gnmdriver/gnmdriver.cpp"
     "${GOW3_GPU}/shadps4/core/libraries/videoout/driver.cpp"
     "${GOW3_GPU}/shadps4/core/libraries/videoout/video_out.cpp"
