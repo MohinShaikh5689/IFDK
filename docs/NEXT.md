@@ -78,7 +78,7 @@
 ## 2. Finish the runtime (milestone 4)
 - **Audio**: replace `runtime_audio.c`'s SDL3 output with AudioQueue/AVAudioEngine (same `runtime_audio_resolve` exports).
 - **Pad**: `runtime_pad.c` on the GameController framework (DualSense/DS4/Xbox/Backbone).
-- **FFmpeg for iOS** for `runtime_mp3.c` and `runtime_videodec.c` (cutscenes). Until then `ios/stub_media.c`.
+- **FFmpeg for iOS** for `runtime_mp3.c` and `runtime_videodec.c` (cutscenes): built by build-ios.sh since 0.1.15.
 - **boot.bin on the phone**: port gow3's `scripts/prepare.py`, `link_libc.py`, `link_modules.py`,
   `content_profile.py`, `patches.py` (Python) to C or Swift, so no PC is needed.
 - Add the new sources to `native/cmake/gow3core.cmake` and `native/runtime/build-ios-check.sh`.

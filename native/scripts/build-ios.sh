@@ -55,6 +55,30 @@ if [ "${GOW3_BUILD:-}" != gpu-check ] && [ ! -f "$OUT/sdl3-build/libSDL3.a" ]; t
     -DSDL_OPENGL=OFF -DSDL_OPENGLES=OFF
   cmake --build "$OUT/sdl3-build" --target SDL3-static
 fi
+# FFmpeg (LGPL-2.1+): the runtime's H.264 video decoder (cutscenes, runtime_videodec.c) and MP3 (Ajm,
+# runtime_mp3.c). A minimal static build: those decoders and parsers, swscale, swresample. Built from a
+# pinned release outside $OUT (the archive merge below takes every .a in $OUT), installed into $OUT/ffmpeg.
+FFMPEG_VERSION=7.1.2
+FFMPEG_SHA256=089bc60fb59d6aecc5d994ff530fd0dcb3ee39aa55867849a2bbc4e555f9c304
+FFMPEG="$OUT/ffmpeg"
+if [ "${GOW3_BUILD:-}" != gpu-check ] && [ ! -f "$FFMPEG/lib/libavcodec.a" ]; then
+  FFMPEG_SRC="$OUT-ffmpeg"
+  mkdir -p "$FFMPEG_SRC"
+  curl -fsSL -o "$FFMPEG_SRC/ffmpeg.tar.xz" "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
+  echo "$FFMPEG_SHA256  $FFMPEG_SRC/ffmpeg.tar.xz" | shasum -a 256 -c -
+  tar -xf "$FFMPEG_SRC/ffmpeg.tar.xz" -C "$FFMPEG_SRC"
+  IOS_SDK=$(xcrun -sdk iphoneos --show-sdk-path)
+  (cd "$FFMPEG_SRC/ffmpeg-$FFMPEG_VERSION" && ./configure --prefix="$FFMPEG" \
+    --enable-cross-compile --target-os=darwin --arch=aarch64 \
+    --cc="$(xcrun -sdk iphoneos -f clang)" --sysroot="$IOS_SDK" \
+    --extra-cflags="-arch arm64 -mios-version-min=17.0" --extra-ldflags="-arch arm64 -mios-version-min=17.0" \
+    --disable-everything --disable-autodetect --disable-programs --disable-doc --disable-network \
+    --disable-avdevice --disable-avfilter --enable-pic \
+    --enable-decoder=h264,hevc,aac,mp3,mp3float --enable-parser=h264,hevc,aac,mpegaudio \
+    --enable-demuxer=mov,mp3,aac,h264 --enable-protocol=file --enable-swscale --enable-swresample \
+    && make -j"$(sysctl -n hw.ncpu)" install)
+fi
+
 # Boost (header-only parts: container, icl, intrusive, pool, asio) from Homebrew, like glslang.
 BOOST_INCLUDE="${GOW3_BOOST_INCLUDE:-$(brew --prefix boost)/include}"
 
@@ -65,6 +89,7 @@ cmake -S "$FEX" -B "$OUT" -G Ninja \
   -DCMAKE_PROJECT_FEX_INCLUDE="$ROOT/native/cmake/fex_project.cmake" \
   -DGOW3_MOLTENVK_INCLUDE="$MOLTENVK/MoltenVK/MoltenVK/include" \
   -DGOW3_SDL3_INCLUDE="$SDL3/include" -DGOW3_BOOST_INCLUDE="$BOOST_INCLUDE" \
+  -DGOW3_FFMPEG_INCLUDE="$FFMPEG/include" \
   -DBUILD_TESTING=OFF -DBUILD_THUNKS=OFF -DBUILD_FEXCONFIG=OFF -DBUILD_FEX_LINUX_TESTS=OFF \
   -DENABLE_FEX_ALLOCATOR=OFF -DENABLE_JEMALLOC_GLIBC_ALLOC=OFF -DENABLE_ASSERTIONS=OFF \
   -DENABLE_CCACHE=ON -DENABLE_LTO=OFF -DENABLE_ZYDIS=OFF -DENABLE_OFFLINE_TELEMETRY=OFF \
@@ -89,7 +114,7 @@ xcrun libtool -static -no_warning_for_no_symbols -o "$DEST/libgow3core_all.a" $(
 # Not `nm | grep -q`: grep exits at the first match and pipefail then fails on nm's SIGPIPE.
 SYMBOLS=$(nm -gU "$DEST/libgow3core_all.a" 2>/dev/null || true)
 for symbol in _gow3_selftest _gow3_start _gow3_gpu_screen_test _vkCreateInstance _vkCreateMetalSurfaceEXT \
-    _gow3gpu_init _gow3_gpu_set_surface _SDL_Delay \
+    _gow3gpu_init _gow3_gpu_set_surface _SDL_Delay _avcodec_find_decoder _sws_scale \
     __ZN7FEXCore9Allocator6mallocEm ___clear_cache; do
   grep -q " T $symbol\$" <<<"$SYMBOLS" || { echo "missing $symbol in libgow3core_all.a" >&2; exit 1; }
 done
