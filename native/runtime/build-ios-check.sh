@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Compiles the gow3 runtime sources for iOS arm64 (compile only, -Werror) and lists every failure.
-# The SDL3 (audio, pad) and FFmpeg (mp3, video) parts wait for those libraries' iOS builds
-# (ios/stub_media.c stands in for them), and vulkan_smoke.c for the GPU library (ios/stub_gpu.c).
+# The SDL3 (audio, pad) and FFmpeg (mp3, video) parts are skipped: their headers come from
+# native/scripts/build-ios.sh, which builds them with the app (as it does vulkan_smoke.c).
 set -uo pipefail
 cd "$(dirname "$0")"
 OUT=${OUT:-/tmp/gow3-runtime-ios}

@@ -12,8 +12,8 @@ target_include_directories(gow3core PRIVATE "${GOW3_NATIVE}/include" "${GOW3_NAT
 set_source_files_properties("${GOW3_NATIVE}/gpu/screen_test.c" PROPERTIES
   INCLUDE_DIRECTORIES "${GOW3_MOLTENVK_INCLUDE}")
 
-# The gow3 runtime and loader (native/runtime, C), with stubs for the SDL3/FFmpeg parts (native/runtime/ios);
-# the GPU library is gow3gpu (gow3gpu.cmake). gow3_start (ios/gow3_start.c) runs the loader on a thread.
+# The gow3 runtime and loader (native/runtime, C) with SDL3 (audio, pads) and FFmpeg (video, MP3) from
+# build-ios.sh; the GPU library is gow3gpu (gow3gpu.cmake). gow3_start (ios/gow3_start.c) runs the loader on a thread.
 set(GOW3_RUNTIME "${GOW3_NATIVE}/runtime")
 file(GLOB GOW3_ATRAC9 "${GOW3_RUNTIME}/third_party/LibAtrac9/C/src/*.c")
 add_library(gow3runtime STATIC
@@ -26,6 +26,10 @@ add_library(gow3runtime STATIC
   "${GOW3_RUNTIME}/src/runtime_kernel.c"
   "${GOW3_RUNTIME}/src/runtime_memory.c"
   "${GOW3_RUNTIME}/src/runtime_mutex.c"
+  "${GOW3_RUNTIME}/src/runtime_audio.c"
+  "${GOW3_RUNTIME}/src/runtime_pad.c"
+  "${GOW3_RUNTIME}/src/runtime_mp3.c"
+  "${GOW3_RUNTIME}/src/runtime_videodec.c"
   "${GOW3_RUNTIME}/src/runtime_rtc.c"
   "${GOW3_RUNTIME}/src/runtime_rwlock.c"
   "${GOW3_RUNTIME}/src/runtime_savedata.c"
@@ -39,9 +43,9 @@ add_library(gow3runtime STATIC
   "${GOW3_RUNTIME}/src/isa_emulate.c"
   "${GOW3_RUNTIME}/ios/gow3_start.c"
   "${GOW3_RUNTIME}/src/vulkan_smoke.c"
-  "${GOW3_RUNTIME}/ios/stub_media.c"
   ${GOW3_ATRAC9})
-target_include_directories(gow3runtime PRIVATE "${GOW3_RUNTIME}" "${GOW3_RUNTIME}/src")
+target_include_directories(gow3runtime PRIVATE "${GOW3_RUNTIME}" "${GOW3_RUNTIME}/src" "${GOW3_SDL3_INCLUDE}"
+  "${GOW3_FFMPEG_INCLUDE}")
 set_source_files_properties(${GOW3_ATRAC9} PROPERTIES COMPILE_OPTIONS "-w")
 set_source_files_properties("${GOW3_RUNTIME}/src/vulkan_smoke.c" PROPERTIES INCLUDE_DIRECTORIES "${GOW3_MOLTENVK_INCLUDE}")
 set_target_properties(gow3runtime PROPERTIES C_STANDARD 11)

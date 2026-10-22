@@ -7,6 +7,7 @@
 #include <mutex>
 #include <thread>
 #import <QuartzCore/CAMetalLayer.h>
+#include <SDL3/SDL.h>
 #include "common/logging/log.h"
 #include "gow3_overlay.h"
 #include "gow3core.h"
@@ -86,6 +87,14 @@ bool WindowSDL::PollEvents() {
         std::scoped_lock lock{g_surface_mutex};
         width = s32(g_width);
         height = s32(g_height);
+    }
+    // Gamepads (runtime_pad.c) are SDL's, updated by its event pump as on the PC window thread;
+    // the in-game menu (R3+L2) takes their events first. SDL video is never initialized here.
+    if (SDL_WasInit(SDL_INIT_GAMEPAD)) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            Gow3Overlay::HandleEvent(event);
+        }
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(8));
     return is_open;

@@ -31,8 +31,12 @@
    unbound textures; needs a dummy view per type if MoltenVK rejects them), sparse buffer arenas (MoltenVK has
    no sparse binding; check the BufferCache probe falls back), geometry shaders (warning only), pipeline
    compile times (SPIR-V -> MSL) and memory.
-3. Touch/gamepad into the overlay (Gow3Overlay::HandleEvent takes SDL events; SDL gamepad init without video).
-4. Audio (SDL3 audio is now linked), FFmpeg for iOS (AvPlayer, mp3, videodec), boot.bin preparation on the phone.
+3. Controllers and audio (0.1.13): runtime_pad.c and runtime_audio.c are built against the app's SDL3
+   (SDL_SetMainReady in gow3_start, SDL_JOYSTICK_HIDAPI=0 so CoreBluetooth is never opened; pads via
+   GameController). The iOS window thread pumps SDL events into Gow3Overlay (R3+L2 menu). Untested on device.
+   Empty texture slots: MoltenVK writes nil textures for null image views (checked in its 1.4.2 source), so no
+   placeholder images yet. Direct memory: 7104 MiB (0.1.12), as run.py sets it for the default patch.
+4. Touch controls, FFmpeg for iOS (AvPlayer, mp3, videodec), boot.bin preparation on the phone.
 
 ---
 ## Earlier handover (morning of 2026-10-21)
@@ -74,7 +78,7 @@
 ## 2. Finish the runtime (milestone 4)
 - **Audio**: replace `runtime_audio.c`'s SDL3 output with AudioQueue/AVAudioEngine (same `runtime_audio_resolve` exports).
 - **Pad**: `runtime_pad.c` on the GameController framework (DualSense/DS4/Xbox/Backbone).
-- **FFmpeg for iOS** for `runtime_mp3.c` and `runtime_videodec.c` (cutscenes). Until then `ios/stub_media.c`.
+- **FFmpeg for iOS** for `runtime_mp3.c` and `runtime_videodec.c` (cutscenes): built by build-ios.sh since 0.1.15.
 - **boot.bin on the phone**: port gow3's `scripts/prepare.py`, `link_libc.py`, `link_modules.py`,
   `content_profile.py`, `patches.py` (Python) to C or Swift, so no PC is needed.
 - Add the new sources to `native/cmake/gow3core.cmake` and `native/runtime/build-ios-check.sh`.

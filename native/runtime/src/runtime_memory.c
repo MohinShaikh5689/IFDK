@@ -40,7 +40,7 @@ static uint64_t pool_size_bytes(void) {
         uint64_t mb = env ? strtoull(env, NULL, 10) : 0;
         if (mb < 5056 || mb > 16384) mb = 5056;
 #ifdef GOW3_WINDOW_LAYOUT
-        if (mb > 11264) mb = 11264; /* pool + flexible span must fit the backing view (12 GiB) */
+        if (mb > 7168) mb = 7168; /* pool + flexible span (1 GiB) must fit the backing view (8 GiB) */
 #endif
         size = mb * 1024 * 1024;
     }
@@ -50,12 +50,14 @@ static uint64_t pool_size_bytes(void) {
 #define FLEXIBLE_SIZE (UINT64_C(448) * 1024 * 1024)
 #define PAGE UINT64_C(16384)
 #ifdef GOW3_WINDOW_LAYOUT
-/* [LOW_MIN,BACKING_MIN) low map 4 GiB, [BACKING_MIN,USER_MIN) backing view 12 GiB, then 48 GiB of
- * PS4 user range. */
+/* [LOW_MIN,BACKING_MIN) low map 4 GiB, [BACKING_MIN,USER_MIN) backing view 8 GiB, then 28 GiB of
+ * PS4 user range. The rest of iOS's 64 GiB hole at 0x7000000000 (22 GiB) stays free: outside it the
+ * app has only 1-3 GB of address space, too little for Metal buffers, FEX's thread caches and
+ * stacks (a 48 GiB user range left none, and thread creation failed once GPU work started). */
 #define LOW_MIN UINT64_C(0x7000000000)
 #define BACKING_MIN UINT64_C(0x7100000000)
-#define USER_MIN UINT64_C(0x7400000000)
-#define USER_MAX UINT64_C(0x8000000000)
+#define USER_MIN UINT64_C(0x7300000000)
+#define USER_MAX UINT64_C(0x7A00000000)
 #define LOW_MAX BACKING_MIN
 #else
 #define LOW_MIN UINT64_C(0x0800000000)
