@@ -12,8 +12,8 @@ target_include_directories(gow3core PRIVATE "${GOW3_NATIVE}/include" "${GOW3_NAT
 set_source_files_properties("${GOW3_NATIVE}/gpu/screen_test.c" PROPERTIES
   INCLUDE_DIRECTORIES "${GOW3_MOLTENVK_INCLUDE}")
 
-# The gow3 runtime and loader (native/runtime, C): CPU-only for now, with stubs for the GPU library and
-# the SDL3/FFmpeg parts (native/runtime/ios). gow3_start (ios/gow3_start.c) runs the loader on a thread.
+# The gow3 runtime and loader (native/runtime, C), with stubs for the SDL3/FFmpeg parts (native/runtime/ios);
+# the GPU library is gow3gpu (gow3gpu.cmake). gow3_start (ios/gow3_start.c) runs the loader on a thread.
 set(GOW3_RUNTIME "${GOW3_NATIVE}/runtime")
 file(GLOB GOW3_ATRAC9 "${GOW3_RUNTIME}/third_party/LibAtrac9/C/src/*.c")
 add_library(gow3runtime STATIC
@@ -38,11 +38,12 @@ add_library(gow3runtime STATIC
   "${GOW3_RUNTIME}/src/isa_rewrite.c"
   "${GOW3_RUNTIME}/src/isa_emulate.c"
   "${GOW3_RUNTIME}/ios/gow3_start.c"
-  "${GOW3_RUNTIME}/ios/stub_gpu.c"
+  "${GOW3_RUNTIME}/src/vulkan_smoke.c"
   "${GOW3_RUNTIME}/ios/stub_media.c"
   ${GOW3_ATRAC9})
 target_include_directories(gow3runtime PRIVATE "${GOW3_RUNTIME}" "${GOW3_RUNTIME}/src")
 set_source_files_properties(${GOW3_ATRAC9} PROPERTIES COMPILE_OPTIONS "-w")
+set_source_files_properties("${GOW3_RUNTIME}/src/vulkan_smoke.c" PROPERTIES INCLUDE_DIRECTORIES "${GOW3_MOLTENVK_INCLUDE}")
 set_target_properties(gow3runtime PROPERTIES C_STANDARD 11)
 # JemallocLibs holds FEXCore::Allocator::malloc/free/... (Utils/AllocatorHooks.cpp; libc-backed on Apple).
 target_link_libraries(gow3core PRIVATE FEXCore FEXCore_Base JemallocLibs fmt::fmt)

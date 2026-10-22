@@ -34,8 +34,8 @@ if [ ! -f "$MOLTENVK/MoltenVK/MoltenVK/static/MoltenVK.xcframework/ios-arm64/lib
   rm "$MOLTENVK/MoltenVK-ios.tar"
 fi
 
-# SDL3 (Zlib): the GPU library's overlay uses its event types; the iOS library build comes with audio
-# and pads. Only the public headers are used so far.
+# SDL3 (Zlib): the GPU library's overlay uses its event types, and SDL audio/gamepads come later. A
+# static library without SDL_main: UIKit belongs to the React Native shell, SDL video stays unused.
 SDL3_VERSION=3.2.24
 SDL3_SHA256=81cc0fc17e5bf2c1754eeca9af9c47a76789ac5efdd165b3b91cbbe4b90bfb76
 SDL3="$OUT/sdl3/SDL3-$SDL3_VERSION"
@@ -46,6 +46,14 @@ if [ ! -f "$SDL3/include/SDL3/SDL.h" ]; then
   echo "$SDL3_SHA256  $OUT/sdl3/SDL3.tar.gz" | shasum -a 256 -c -
   tar -xzf "$OUT/sdl3/SDL3.tar.gz" -C "$OUT/sdl3"
   rm "$OUT/sdl3/SDL3.tar.gz"
+fi
+if [ "${GOW3_BUILD:-}" != gpu-check ] && [ ! -f "$OUT/sdl3-build/libSDL3.a" ]; then
+  cmake -S "$SDL3" -B "$OUT/sdl3-build" -G Ninja \
+    -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_SYSROOT=iphoneos \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 -DCMAKE_BUILD_TYPE=Release \
+    -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF \
+    -DSDL_OPENGL=OFF -DSDL_OPENGLES=OFF
+  cmake --build "$OUT/sdl3-build" --target SDL3-static
 fi
 # Boost (header-only parts: container, icl, intrusive, pool, asio) from Homebrew, like glslang.
 BOOST_INCLUDE="${GOW3_BOOST_INCLUDE:-$(brew --prefix boost)/include}"
@@ -68,7 +76,7 @@ if [ "${GOW3_BUILD:-}" = gpu-check ]; then
   cmake --build "$OUT" --target gow3gpu -- -k 0
   exit
 fi
-cmake --build "$OUT" --target gow3core gow3runtime JemallocLibs
+cmake --build "$OUT" --target gow3core gow3runtime gow3gpu JemallocLibs
 
 # Every archive in the build tree (FEXCore, FEXCore_Base, CodeEmitter, fmt, xxhash, cephes,
 # SoftFloat, ...), merged into one. JemallocDummy is built from the same source as JemallocLibs,
@@ -81,6 +89,7 @@ xcrun libtool -static -no_warning_for_no_symbols -o "$DEST/libgow3core_all.a" $(
 # Not `nm | grep -q`: grep exits at the first match and pipefail then fails on nm's SIGPIPE.
 SYMBOLS=$(nm -gU "$DEST/libgow3core_all.a" 2>/dev/null || true)
 for symbol in _gow3_selftest _gow3_start _gow3_gpu_screen_test _vkCreateInstance _vkCreateMetalSurfaceEXT \
+    _gow3gpu_init _gow3_gpu_set_surface _SDL_Delay \
     __ZN7FEXCore9Allocator6mallocEm ___clear_cache; do
   grep -q " T $symbol\$" <<<"$SYMBOLS" || { echo "missing $symbol in libgow3core_all.a" >&2; exit 1; }
 done

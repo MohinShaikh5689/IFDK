@@ -22,6 +22,8 @@ private func gow3_jit_pool_ready() -> Int32
 @_silgen_name("gow3_gpu_screen_test")
 private func gow3_gpu_screen_test(_ layer: UnsafeMutableRawPointer?, _ width: UInt32, _ height: UInt32, _ seconds: UInt32,
                                   _ out: UnsafeMutablePointer<CChar>?, _ capacity: Int) -> Int
+@_silgen_name("gow3_gpu_set_surface")
+func gow3_gpu_set_surface(_ layer: UnsafeMutableRawPointer?, _ width: UInt32, _ height: UInt32, _ refreshHz: UInt32)
 @_silgen_name("gow3_selftest")
 private func gow3_selftest(_ logPath: UnsafePointer<CChar>?, _ out: UnsafeMutablePointer<CChar>?, _ capacity: Int) -> Int
 
@@ -97,6 +99,46 @@ public class Gow3CoreModule: Module {
   private static var gameLogURL: URL { gameRoot.appendingPathComponent("loader.log") }
 
   private static var gameStarted = false
+
+  /// JIT and the game files are ready, and the loader has not run yet (it runs once per launch).
+  private static func checkCanStart() throws {
+    guard !gameStarted else { throw Gow3Error(description: "The game already started; relaunch the app to start it again.") }
+    guard gow3_jit_pool_ready() != 0 else { throw Gow3Error(description: "Enable JIT first.") }
+    let manager = FileManager.default
+    guard manager.fileExists(atPath: gameRoot.appendingPathComponent("boot-linked.bin").path) else {
+      throw Gow3Error(description: "Missing Documents/gow3/boot-linked.bin (from gow3's out/ folder on the PC).")
+    }
+    guard manager.fileExists(atPath: gameRoot.appendingPathComponent("game/eboot.bin").path) else {
+      throw Gow3Error(description: "Missing Documents/gow3/game/eboot.bin (the dumped game folder).")
+    }
+  }
+
+  /// Runs the loader (gow3_start) on its own thread with the game in Documents/gow3.
+  private static func startLoader(cpuOnly: Bool) throws {
+    try checkCanStart()
+    let root = gameRoot
+    let manager = FileManager.default
+    let boot = root.appendingPathComponent("boot-linked.bin").path
+    let game = root.appendingPathComponent("game").path
+    let user = root.appendingPathComponent("user").path
+    try? manager.createDirectory(atPath: user, withIntermediateDirectories: true)
+    var args = ["gow3", boot] + (cpuOnly ? ["--cpu-only"] : []) + ["--app0", game, "--user", user, "--timeout", "0"]
+    for (option, file) in [("--content-profile", "content.bin"), ("--patches", "patches.bin")] {
+      let path = root.appendingPathComponent(file).path
+      if manager.fileExists(atPath: path) { args += [option, path] }
+    }
+    // The guest memory pool is a sparse file: in tmp, which iOS does not back up.
+    setenv("GOW3_POOL_DIR", NSTemporaryDirectory(), 1)
+    let log = gameLogURL.path
+    try? "--- \(Date()) start: \(args.joined(separator: " "))\n".appendLine(to: log)
+    let cStrings = args.map { strdup($0) }
+    defer { cStrings.forEach { free($0) } }
+    var argv: [UnsafePointer<CChar>?] = cStrings.map { UnsafePointer($0) }
+    argv.append(nil)
+    let code = argv.withUnsafeBufferPointer { gow3_start(Int32(args.count), $0.baseAddress, log) }
+    guard code == 0 else { throw Gow3Error(description: "The loader did not start (\(code)).") }
+    gameStarted = true
+  }
 
   public func definition() -> ModuleDefinition {
     Name("Gow3Core")
@@ -269,37 +311,38 @@ public class Gow3CoreModule: Module {
               "started": Gow3CoreModule.gameStarted]
     }
 
-    /// Starts the game CPU-only (no GPU yet): the loader maps the eboot, links it against the runtime
-    /// and runs it through FEXCore until it stops, logging to Documents/gow3/loader.log.
+    /// Starts the game CPU-only: the loader maps the eboot, links it against the runtime and runs it
+    /// through FEXCore until the first GPU call, logging to Documents/gow3/loader.log.
     AsyncFunction("startGameCpuOnly") { () -> String in
-      guard !Gow3CoreModule.gameStarted else { throw Gow3Error(description: "The game already started; relaunch the app to start it again.") }
-      guard gow3_jit_pool_ready() != 0 else { throw Gow3Error(description: "Enable JIT first.") }
-      let root = Gow3CoreModule.gameRoot
-      let manager = FileManager.default
-      let boot = root.appendingPathComponent("boot-linked.bin").path
-      let game = root.appendingPathComponent("game").path
-      guard manager.fileExists(atPath: boot) else { throw Gow3Error(description: "Missing Documents/gow3/boot-linked.bin (from gow3's out/ folder on the PC).") }
-      guard manager.fileExists(atPath: game + "/eboot.bin") else { throw Gow3Error(description: "Missing Documents/gow3/game/eboot.bin (the dumped game folder).") }
-      let user = root.appendingPathComponent("user").path
-      try? manager.createDirectory(atPath: user, withIntermediateDirectories: true)
-      var args = ["gow3", boot, "--cpu-only", "--app0", game, "--user", user, "--timeout", "0"]
-      for (option, file) in [("--content-profile", "content.bin"), ("--patches", "patches.bin")] {
-        let path = root.appendingPathComponent(file).path
-        if manager.fileExists(atPath: path) { args += [option, path] }
-      }
-      // The guest memory pool is a sparse file: in tmp, which iOS does not back up.
-      setenv("GOW3_POOL_DIR", NSTemporaryDirectory(), 1)
-      let log = Gow3CoreModule.gameLogURL.path
-      try? "--- \(Date()) start: \(args.joined(separator: " "))\n".appendLine(to: log)
-      let cStrings = args.map { strdup($0) }
-      defer { cStrings.forEach { free($0) } }
-      var argv: [UnsafePointer<CChar>?] = cStrings.map { UnsafePointer($0) }
-      argv.append(nil)
-      let code = argv.withUnsafeBufferPointer { gow3_start(Int32(args.count), $0.baseAddress, log) }
-      guard code == 0 else { throw Gow3Error(description: "The loader did not start (\(code)).") }
-      Gow3CoreModule.gameStarted = true
+      try Gow3CoreModule.startLoader(cpuOnly: true)
       return "Loader started; see the game log."
     }
+
+    /// Starts the game with the GPU: the fullscreen Metal view is presented over the app, its layer
+    /// becomes the game's window (gow3_gpu_set_surface), then the loader starts. A two-finger double
+    /// tap hides the view again (the game keeps running) so the log can be read.
+    AsyncFunction("startGame") { (promise: Promise) in
+      do {
+        try Gow3CoreModule.checkCanStart()
+      } catch {
+        promise.reject(error)
+        return
+      }
+      Gow3GameViewController.present { controller in
+        guard let controller else {
+          promise.reject(Gow3Error(description: "No window to present the Metal view in."))
+          return
+        }
+        controller.feedsGame = true
+        controller.publishSurface()
+        do {
+          try Gow3CoreModule.startLoader(cpuOnly: false)
+          promise.resolve("Game started; two-finger double tap hides the game view.")
+        } catch {
+          controller.dismiss(animated: false) { promise.reject(error) }
+        }
+      }
+    }.runOnQueue(.main)
 
     /// The last 24 KiB of Documents/gow3/loader.log.
     Function("readGameLog") { () -> String in
