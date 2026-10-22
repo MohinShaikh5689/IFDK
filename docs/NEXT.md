@@ -1,4 +1,89 @@
-# Next tasks (handover, 2026-10-22 night)
+# Next tasks (handover, 2026-10-23)
+
+## State on the device (0.1.22, save from the PC version loaded)
+- Title screen and menus look right at 30-60 fps (600p patch `1066x600`, `show_fps=1`).
+- Gameplay renders correctly in some areas (the tomb area: textures, fire, lighting, Kratos all right)
+  and is badly corrupted in others (the gold Hades gate scene: blocky blue static, blown-out lighting).
+  So the corruption comes from specific passes or effects, not textures in general.
+- Gameplay runs at 7-12 fps and the phone reaches thermal state `serious` in about a minute.
+- The game crashes after some time in play, always the same way (NoExec, below). Attacks no longer crash
+  (0.1.21).
+- `Documents/gow3/env.txt` on the phone (read at start, 0.1.20) currently holds:
+  `FEX_DISABLEL2CACHE=0`, `FEX_DYNAMICL1CACHE=0`, `MVK_CONFIG_PERFORMANCE_TRACKING=1`,
+  `MVK_CONFIG_PERFORMANCE_LOGGING_FRAME_COUNT=300`, `GOW3_BUFFER_BOUNDS=0`.
+
+What was tried and its result:
+| Build | Change | Result |
+|---|---|---|
+| 0.1.19 | GPU write faults release the whole 16K page; landscape; frame stats | fault loops 10 -> 2 at load |
+| 0.1.20 | `env.txt`; FEX lookup caches as upstream (`env.txt`) | the NoExec crash still happens (seen on 0.1.22 with them on) |
+| 0.1.20 | MoltenVK fast math off | textures unchanged |
+| 0.1.21 | no-perspective barycentrics from perspective ones on Metal | attack crash fixed (MSL can't declare both) |
+| 0.1.22 | shader bounds checks for guest buffers (no robustBufferAccess2) | textures unchanged, **Kratos invisible**; off with `GOW3_BUFFER_BOUNDS=0` |
+
+## Next, in order
+
+### 1. The NoExec crash (top blocker)
+Log signature: `[iOS-noexec] status=NOEXEC` at game offsets `0x23f8600`, `0x2400700`, `0x2410000`, then
+`Guest fault (signal 11) ... address 0x0`. NOEXEC means FEX's decoder asked `QueryGuestExecutableRange`
+(`native/cpu/guest_cpu_fex_darwin.cpp`) and the address is not registered code. Registered code is the
+game image (ends at offset `0x1da4b3c`) plus the trap page, so **every crash target lies past the end of
+the image**: the game jumps into data (bad function pointer or corrupted return address). The 16K page
+alignment of `0x2410000` is probably a coincidence.
+
+Candidate causes, cheapest check first:
+- **What lives there:** log the runtime's mappings around image + `0x2400000` (flexible/direct memory map
+  log). If it is a heap or a module's data, the caller is reading a stale or wrong pointer.
+- **Who jumped:** when NoExec fires, log the last N guest block entries per thread (a small ring in the
+  dispatcher or in `Core.cpp` next to the `[iOS-noexec]` log) so the indirect branch source is named
+  instead of guessed. The stack-scan return addresses in the fault dump are stale.
+- **FEX block cache returning the wrong block:** try `FEX_MULTIBLOCK=0` and `FEX_MAXINST=1` via `env.txt`
+  (already wired in 0.1.20). If the crash goes away, the bug is in block linking or lookup.
+- **Memory ordering between game threads:** `FEX_TSOENABLED=1` is the default; check it is on and try
+  `FEX_VECTORTSOENABLED=1`, `FEX_MEMCPYSETTSOENABLED=1`, `FEX_HALFBARRIERTSOENABLED=0` via `env.txt`.
+- **A runtime stand-in returning a bad pointer:** the fault report's last 32 host calls end in
+  `guest_memcpy` / mutex loops; look at which HLE call ran last on the faulting thread.
+- **Memory pressure:** iOS sent a critical memory warning before an earlier crash; log `phys_footprint`
+  every few seconds (MoltenVK reported 2.4 GB GPU memory in the tomb area).
+- Compare with the same scene on gow3_android if possible.
+
+### 2. GPU time (7-12 fps)
+MoltenVK performance tracking (0.1.22 log, tomb area): `Execute a MTLCommandBuffer on GPU` avg 34.5 ms,
+recent ones 90-185 ms, about 3.4 command buffers a frame; `Present` avg 32 ms; encoding only 0.5 ms;
+the frame waits on "GPU ticks" for 80+ % of the time. So the GPU itself is slow, not the CPU recording.
+A good Vulkan-on-Metal translation should cost about 10 %; a gap this large usually means one bad path
+or a stall, not overall overhead. shadPS4's own GPU profiler reads 0 ms per pass on MoltenVK.
+
+What to look for:
+- **Time each pass:** split work into more command buffers in a debug mode (e.g. one per render pass or
+  per N draws) and read MoltenVK's per-command-buffer GPU time, or add Metal counter sample buffers.
+  Find whether one pass (detiling compute, a full-screen effect, shadow maps, FSR) takes most of the time.
+- **Stalls:** CPU-GPU sync points (readbacks, `vkQueueWaitIdle`, fences per draw), and render passes that
+  are restarted per draw on a tile GPU (load/store of attachments each time is very costly on Apple GPUs).
+  Count render pass begins per frame.
+- **Expensive translation paths:** primitive restart warnings (`Metal does not support disabling primitive
+  restart`), geometry or tessellation emulation, 3-component formats, and `IT_SET_PREDICATION` (unimplemented).
+- **Upscaler:** the overlay shows FSR 3.1; check its cost and whether MetalFX can replace it.
+- Heat: 30 fps cap, then lower resolution, thread QoS, thermal-state adaptation.
+- First visit to an area compiles about 490 shaders (MSL compile avg 34 ms each); later visits use the
+  cache. Not a steady-state cost.
+
+### 3. Corruption in some scenes
+Rendering is right in the tomb area and wrong at the Hades gate, so find the pass that differs:
+- Capture both scenes with the frame capture tools in `vk_rasterizer.cpp` (`FrameCapture`) and compare
+  pass lists, formats and shaders.
+- Suspects: formats the A19 lacks (log: A2B10G10R10 SNORM/SINT, RGB32 sampling, D16S8 attachments,
+  B4G4R4A4 as attachment) and their fallbacks; compute passes (storage images without format);
+  `IT_SET_PREDICATION`; blending of HDR targets (blown-out light).
+- MoltenVK settings to try via `env.txt`: `MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0`,
+  `MVK_CONFIG_TEXTURE_1D_AS_2D`, `MVK_CONFIG_SHADER_COMPRESSION_ALGORITHM`.
+
+### 4. Clean-up
+- Remove the 0.1.22 buffer bounds checks (or leave them off by default): they made Kratos invisible and
+  did not fix the textures. Most likely `OpArrayLength` does not give the bound range on MoltenVK.
+- Make the confirmed `env.txt` settings defaults in code once they are proven.
+
+## Earlier handover (2026-10-22 night)
 
 ## State on the device (0.1.18, full game CUSA01715 + 01.02 on the phone)
 **The game boots and plays its intro**: brightness screen, DualSense input, menus, cutscene video with
