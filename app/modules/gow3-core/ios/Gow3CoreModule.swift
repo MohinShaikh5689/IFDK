@@ -146,9 +146,28 @@ public class Gow3CoreModule: Module {
     }
   }
 
+  /// Documents/gow3/env.txt: KEY=VALUE lines (# starts a comment) set as environment variables before
+  /// the loader starts, ahead of the defaults below. For diagnostics and FEX options
+  /// (GOW3_GPU_PROFILE=1, FEX_DISABLEL2CACHE=0, ...) without a new build.
+  private static func applyEnvFile() -> [String] {
+    guard let text = try? String(contentsOf: gameRoot.appendingPathComponent("env.txt"), encoding: .utf8) else { return [] }
+    var applied: [String] = []
+    for line in text.split(whereSeparator: \.isNewline) {
+      let entry = line.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]
+        .trimmingCharacters(in: .whitespaces)
+      guard let equals = entry.firstIndex(of: "="), equals != entry.startIndex else { continue }
+      let key = entry[..<equals].trimmingCharacters(in: .whitespaces)
+      let value = entry[entry.index(after: equals)...].trimmingCharacters(in: .whitespaces)
+      setenv(key, value, 1)
+      applied.append("\(key)=\(value)")
+    }
+    return applied
+  }
+
   /// Runs the loader (gow3_start) on its own thread with the game in Documents/gow3.
   private static func startLoader(cpuOnly: Bool) throws {
     try checkCanStart()
+    let envFile = applyEnvFile()
     let root = gameRoot
     let manager = FileManager.default
     let boot = root.appendingPathComponent("boot-linked.bin").path
@@ -180,6 +199,7 @@ public class Gow3CoreModule: Module {
     let log = gameLogURL.path
     watchThermalState(log: log)
     try? "--- \(Date()) start: \(args.joined(separator: " "))\n".appendLine(to: log)
+    if !envFile.isEmpty { try? "--- env.txt: \(envFile.joined(separator: " "))\n".appendLine(to: log) }
     let cStrings = args.map { strdup($0) }
     defer { cStrings.forEach { free($0) } }
     var argv: [UnsafePointer<CChar>?] = cStrings.map { UnsafePointer($0) }

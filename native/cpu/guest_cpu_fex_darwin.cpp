@@ -343,6 +343,24 @@ void guest_cpu_init(void* (*map)(size_t size, int prot)) {
     FEXCore::Config::Load();
     FEXCore::Config::ReloadMetaLayer();
     FEXCore::Config::Set(FEXCore::Config::CONFIG_IS64BIT_MODE, "1");
+    // A few options from the environment (the app's Documents/gow3/env.txt), named as FEX's own
+    // environment layer names them, for testing without a new build.
+    static constexpr std::pair<const char*, FEXCore::Config::ConfigOption> env_options[] = {
+        {"FEX_DISABLEL2CACHE", FEXCore::Config::CONFIG_DISABLEL2CACHE},
+        {"FEX_DYNAMICL1CACHE", FEXCore::Config::CONFIG_DYNAMICL1CACHE},
+        {"FEX_MULTIBLOCK", FEXCore::Config::CONFIG_MULTIBLOCK},
+        {"FEX_MAXINST", FEXCore::Config::CONFIG_MAXINST},
+        {"FEX_TSOENABLED", FEXCore::Config::CONFIG_TSOENABLED},
+        {"FEX_VECTORTSOENABLED", FEXCore::Config::CONFIG_VECTORTSOENABLED},
+        {"FEX_MEMCPYSETTSOENABLED", FEXCore::Config::CONFIG_MEMCPYSETTSOENABLED},
+        {"FEX_HALFBARRIERTSOENABLED", FEXCore::Config::CONFIG_HALFBARRIERTSOENABLED},
+    };
+    for (const auto& [name, option] : env_options) {
+        if (const char* value = std::getenv(name); value && *value) {
+            FEXCore::Config::Set(option, value);
+            std::fprintf(stderr, "FEX option from the environment: %s=%s\n", name, value);
+        }
+    }
     Step("fex: host features");
     const auto features = gow3_fex_host_features();
     wide_xmm = features.SupportsAVX && features.SupportsSVE256;
