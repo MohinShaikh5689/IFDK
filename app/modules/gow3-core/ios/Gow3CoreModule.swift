@@ -113,6 +113,39 @@ public class Gow3CoreModule: Module {
     }
   }
 
+  /// The dumped game (about 32 GB) and the files made from it on a PC can be copied in again, so
+  /// they stay out of iCloud and computer backups; user/ (the saves) is still backed up.
+  private static func excludeGameFilesFromBackup() {
+    var values = URLResourceValues()
+    values.isExcludedFromBackup = true
+    for name in ["game", "boot-linked.bin", "content.bin", "patches.bin"] {
+      var url = gameRoot.appendingPathComponent(name)
+      if FileManager.default.fileExists(atPath: url.path) { try? url.setResourceValues(values) }
+    }
+  }
+
+  private static var thermalObserver: NSObjectProtocol?
+
+  /// Thermal state changes go to the game log, to line them up with what the game was doing.
+  private static func watchThermalState(log: String) {
+    func note(_ state: ProcessInfo.ThermalState) {
+      let name: String
+      switch state {
+      case .nominal: name = "nominal"
+      case .fair: name = "fair"
+      case .serious: name = "serious"
+      case .critical: name = "critical"
+      @unknown default: name = "unknown"
+      }
+      try? "--- \(Date()) thermal state: \(name)\n".appendLine(to: log)
+    }
+    note(ProcessInfo.processInfo.thermalState)
+    thermalObserver = NotificationCenter.default.addObserver(
+      forName: ProcessInfo.thermalStateDidChangeNotification, object: nil, queue: nil) { _ in
+      note(ProcessInfo.processInfo.thermalState)
+    }
+  }
+
   /// Runs the loader (gow3_start) on its own thread with the game in Documents/gow3.
   private static func startLoader(cpuOnly: Bool) throws {
     try checkCanStart()
@@ -137,7 +170,12 @@ public class Gow3CoreModule: Module {
     // video arena allocation fails and it dereferences the missing pointer. The pool is file-backed,
     // so this costs no app memory until pages are written.
     setenv("GOW3_DMEM_MB", "7104", 0)
+    // With graphics, no new frame for 60 s dumps the threads to the log, and 180 s ends the app
+    // (gow3_start.c), so a hung game does not keep the CPU busy and the phone hot.
+    if !cpuOnly { setenv("GOW3_FRAME_WATCHDOG", "60", 0) }
+    excludeGameFilesFromBackup()
     let log = gameLogURL.path
+    watchThermalState(log: log)
     try? "--- \(Date()) start: \(args.joined(separator: " "))\n".appendLine(to: log)
     let cStrings = args.map { strdup($0) }
     defer { cStrings.forEach { free($0) } }

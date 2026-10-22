@@ -256,7 +256,23 @@ static uint64_t patch_tcb_loads(const Segment *segments, uint64_t count) {
 static const int isa_gregs[16]={REG_RAX,REG_RCX,REG_RDX,REG_RBX,REG_RSP,REG_RBP,REG_RSI,REG_RDI,
                                 REG_R8,REG_R9,REG_R10,REG_R11,REG_R12,REG_R13,REG_R14,REG_R15};
 #endif
+#ifdef __APPLE__
+/* For the iOS thread dump and watchdog (ios/gow3_start.c): every fault that reached the handler,
+ * resolved or not, and the last one. A fault that is "resolved" but happens again at once is a
+ * thread that spins in the handler while it looks like it runs. */
+unsigned long long gow3_fault_count;
+int gow3_fault_last_sig, gow3_fault_last_code;
+uintptr_t gow3_fault_last_addr, gow3_fault_last_pc;
+uintptr_t gow3_guest_image_base(void) { return (uintptr_t)image; }
+#endif
 static void fault(int sig, siginfo_t *info, void *context) {
+#ifdef __APPLE__
+    __atomic_add_fetch(&gow3_fault_count, 1, __ATOMIC_RELAXED);
+    __atomic_store_n(&gow3_fault_last_sig, sig, __ATOMIC_RELAXED);
+    __atomic_store_n(&gow3_fault_last_code, info->si_code, __ATOMIC_RELAXED);
+    __atomic_store_n(&gow3_fault_last_addr, (uintptr_t)info->si_addr, __ATOMIC_RELAXED);
+    __atomic_store_n(&gow3_fault_last_pc, guest_cpu_host_pc(context), __ATOMIC_RELAXED);
+#endif
     /* The guest CPU's own faults (FEXCore's JIT on Android/ARM64) are resolved first. */
     if (guest_cpu_handle_fault(sig, info, context)) return;
 #ifdef GUEST_CPU_NATIVE
@@ -405,9 +421,12 @@ static void host_backtrace(void *context) {
     pthread_getname_np(pthread_self(),name,sizeof(name));
     Dl_info where;
     uintptr_t pc=guest_cpu_host_pc(context);
+    /* System library symbols are <redacted> on iOS: the library and offset still place the pc. */
     if (dladdr((void *)pc,&where) && where.dli_sname)
-        snprintf(line,sizeof(line),"  thread '%s' tid=%llu host pc in %s+0x%lx\n",name,(unsigned long long)gettid(),
-                 where.dli_sname,(unsigned long)(pc-(uintptr_t)where.dli_saddr));
+        snprintf(line,sizeof(line),"  thread '%s' tid=%llu host pc in %s+0x%lx (%s+0x%lx)\n",name,(unsigned long long)gettid(),
+                 where.dli_sname,(unsigned long)(pc-(uintptr_t)where.dli_saddr),
+                 strrchr(where.dli_fname,'/') ? strrchr(where.dli_fname,'/')+1 : where.dli_fname,
+                 (unsigned long)(pc-(uintptr_t)where.dli_fbase));
     else
         snprintf(line,sizeof(line),"  thread '%s' tid=%llu host pc %p (no symbol: JIT code or stripped)\n",name,(unsigned long long)gettid(),(void *)pc);
     { ssize_t written_=write(2,line,strlen(line)); (void)written_; }

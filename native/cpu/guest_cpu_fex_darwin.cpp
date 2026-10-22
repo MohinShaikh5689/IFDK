@@ -596,6 +596,21 @@ uint64_t guest_cpu_tsc_frequency(void) {
 }
 } // extern "C"
 
+// For the thread dump (gow3_start.c): the guest RIP that a host pc in some thread's JIT code runs,
+// or 0. try_lock, since the thread being dumped may hold threads_lock.
+extern "C" uint64_t gow3_guest_rip_at(uintptr_t pc) {
+    std::unique_lock lock(threads_lock, std::try_to_lock);
+    if (!lock.owns_lock() || !ctx) {
+        return 0;
+    }
+    for (GuestThread* t : threads) {
+        if (ctx->IsAddressInCodeBuffer(t->thread, pc)) {
+            return ctx->RestoreRIPFromHostPC(t->thread, pc);
+        }
+    }
+    return 0;
+}
+
 // For the loader's fault report (probe.c): the last host calls made by guest code, oldest first,
 // written with write(2) so it works in a signal handler that is about to end the process.
 extern "C" void gow3_guest_dump_recent_calls(int fd) {

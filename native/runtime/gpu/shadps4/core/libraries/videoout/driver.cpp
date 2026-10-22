@@ -28,6 +28,9 @@
 #include "core/libraries/videoout/videoout_error.h"
 #include "imgui/renderer/imgui_core.h"
 #include "video_core/amdgpu/liverpool.h"
+#ifdef __APPLE__
+extern "C" unsigned long long gow3_flip_count; // gow3 (iOS): defined in ios/gow3_start.c
+#endif
 #include "video_core/renderer_vulkan/vk_presenter.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -616,6 +619,10 @@ bool VideoOutDriver::SubmitFlip(VideoOutPort* port, s32 index, s64 flip_arg,
         port->flip_status.submit_tsc = Libraries::Kernel::sceKernelReadTsc();
     }
 
+#ifdef __APPLE__
+    // gow3 (iOS): the app's no-frame watchdog (ios/gow3_start.c) counts flips.
+    __atomic_add_fetch(&gow3_flip_count, 1, __ATOMIC_RELAXED);
+#endif
     if (!is_eop) {
         // Non EOP flips can arrive from any thread so ask GPU thread to perform them
         liverpool->SendCommand([=, this]() { SubmitFlipInternal(port, index, flip_arg, is_eop); });

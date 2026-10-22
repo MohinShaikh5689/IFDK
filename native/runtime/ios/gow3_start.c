@@ -18,6 +18,19 @@
 
 int gow3_probe_main(int argc, char **argv);
 
+/* Flips the game submitted (VideoOutDriver::SubmitFlip); the watchdog below watches it. */
+unsigned long long gow3_flip_count;
+#ifdef __APPLE__
+/* probe.c: faults that reached its handler, the last one, and where the game image is. */
+extern unsigned long long gow3_fault_count;
+extern int gow3_fault_last_sig, gow3_fault_last_code;
+extern uintptr_t gow3_fault_last_addr, gow3_fault_last_pc;
+uintptr_t gow3_guest_image_base(void);
+/* guest_cpu_fex_darwin.cpp: the guest RIP of a host pc in JIT code, or 0. */
+uint64_t gow3_guest_rip_at(uintptr_t pc);
+#endif
+int gow3_dump_threads(void);
+
 static int loader_argc;
 static char **loader_argv;
 static pthread_key_t loader_key;
@@ -43,6 +56,57 @@ static void *loader(void *unused) {
     /* The game normally never returns; the loader's own errors end the process through exit(). */
     printf("Loader returned %d\n", result);
     fflush(NULL);
+    return NULL;
+}
+
+#ifdef __APPLE__
+static void log_faults(const char *prefix) {
+    fprintf(stderr, "%sfaults=%llu last: signal %d code %d address %p host pc %p\n", prefix,
+            __atomic_load_n(&gow3_fault_count, __ATOMIC_RELAXED), gow3_fault_last_sig, gow3_fault_last_code,
+            (void *)gow3_fault_last_addr, (void *)gow3_fault_last_pc);
+}
+#endif
+
+/* A game that shows no new frame for `limit` seconds is stuck: its threads are dumped to the log, once
+ * per stall. After 3 * limit seconds without one the app ends, so that a hung game does not keep the
+ * CPU busy (and the phone hot) until someone notices. */
+static int watchdog_limit;
+
+static void *frame_watchdog(void *unused) {
+    (void)unused;
+#ifdef __APPLE__
+    pthread_setname_np("gow3:watchdog");
+#endif
+    enum { TICK = 5 };
+    unsigned long long last_flips = 0;
+#ifdef __APPLE__
+    unsigned long long last_faults = 0;
+#endif
+    int stalled = 0, dumped = 0;
+    for (;;) {
+        sleep(TICK);
+        stalled += TICK;
+        const unsigned long long flips = __atomic_load_n(&gow3_flip_count, __ATOMIC_RELAXED);
+        if (flips != last_flips) { last_flips = flips; stalled = 0; dumped = 0; }
+#ifdef __APPLE__
+        const unsigned long long faults = __atomic_load_n(&gow3_fault_count, __ATOMIC_RELAXED);
+        if (faults - last_faults > 1000u * TICK) {
+            fprintf(stderr, "watchdog: %llu faults in %d s; ", faults - last_faults, TICK);
+            log_faults("");
+        }
+        last_faults = faults;
+#endif
+        if (stalled >= watchdog_limit && !dumped) {
+            fprintf(stderr, "watchdog: no new frame for %d s (%llu flips so far); thread dump follows\n", stalled, flips);
+            gow3_dump_threads();
+            dumped = 1;
+        }
+        if (stalled >= 3 * watchdog_limit) {
+            fprintf(stderr, "watchdog: no new frame for %d s; ending the app so a hung game does not keep the phone busy\n", stalled);
+            fflush(NULL);
+            _exit(3);
+        }
+    }
     return NULL;
 }
 
@@ -73,31 +137,64 @@ int gow3_start(int argc, const char *const *argv, const char *log_path) {
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     pthread_t thread;
     int e = pthread_create(&thread, &attr, loader, NULL);
+    /* GOW3_FRAME_WATCHDOG: seconds without a new frame before the watchdog acts (0 or unset: off). */
+    const char *limit = getenv("GOW3_FRAME_WATCHDOG");
+    watchdog_limit = limit ? atoi(limit) : 0;
+    if (!e && watchdog_limit > 0) {
+        pthread_attr_setstacksize(&attr, 256u << 10);
+        pthread_create(&thread, &attr, frame_watchdog, NULL);
+    }
     pthread_attr_destroy(&attr);
     return e ? -4 : 0;
 }
 
 #ifdef __APPLE__
+/* Symbol, library and offset in it (system library symbols are <redacted> on iOS, the offset is not),
+ * or the game instruction when the address is in JIT code. */
 static void log_address(const char *label, uintptr_t address) {
     Dl_info where;
-    if (dladdr((void *)address, &where) && where.dli_sname)
-        fprintf(stderr, "    %s %s+0x%lx\n", label, where.dli_sname, (unsigned long)(address - (uintptr_t)where.dli_saddr));
+    if (dladdr((void *)address, &where) && where.dli_fname) {
+        const char *library = strrchr(where.dli_fname, '/');
+        fprintf(stderr, "    %s %s+0x%lx (%s+0x%lx)\n", label, where.dli_sname ? where.dli_sname : "?",
+                (unsigned long)(address - (uintptr_t)where.dli_saddr), library ? library + 1 : where.dli_fname,
+                (unsigned long)(address - (uintptr_t)where.dli_fbase));
+        return;
+    }
+    const uint64_t rip = gow3_guest_rip_at(address);
+    const uintptr_t image = gow3_guest_image_base();
+    if (rip && image && rip - image < 0x10000000)
+        fprintf(stderr, "    %s %p (JIT code for game offset 0x%lx)\n", label, (void *)address, (unsigned long)(rip - image));
+    else if (rip)
+        fprintf(stderr, "    %s %p (JIT code for guest rip 0x%llx)\n", label, (void *)address, (unsigned long long)rip);
     else
         fprintf(stderr, "    %s %p (no symbol: JIT code or stripped)\n", label, (void *)address);
 }
 
 /* The loader thread's pc, lr and frame-pointer chain, read through Mach while it is suspended,
  * so it shows up even when it cannot run a signal handler. Symbols are looked up after it resumes,
- * since it may hold the dyld or stdio lock. */
+ * since it may hold the dyld or stdio lock. The pc is sampled a few more times, with the fault count
+ * around the samples: a pc that never moves while faults climb is a fault retried forever. */
 static void dump_loader_registers(thread_act_t thread) {
 #if defined(__arm64__) || defined(__aarch64__)
-    enum { DEPTH = 32 };
-    uintptr_t frames[DEPTH + 2];
-    int depth = 0;
+    enum { DEPTH = 32, SAMPLES = 16 };
+    uintptr_t frames[DEPTH + 2], samples[SAMPLES];
+    int depth = 0, sampled = 0;
+    const unsigned long long faults_before = __atomic_load_n(&gow3_fault_count, __ATOMIC_RELAXED);
+    for (int i = 0; i < SAMPLES; ++i) {
+        usleep(10000);
+        arm_thread_state64_t sample;
+        mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT;
+        if (thread_suspend(thread) != KERN_SUCCESS) break;
+        if (thread_get_state(thread, ARM_THREAD_STATE64, (thread_state_t)&sample, &count) == KERN_SUCCESS)
+            samples[sampled++] = (uintptr_t)arm_thread_state64_get_pc(sample);
+        thread_resume(thread);
+    }
+    const unsigned long long faults_after = __atomic_load_n(&gow3_fault_count, __ATOMIC_RELAXED);
     if (thread_suspend(thread) != KERN_SUCCESS) { fprintf(stderr, "    (cannot suspend the loader thread)\n"); return; }
     arm_thread_state64_t state;
     mach_msg_type_number_t n = ARM_THREAD_STATE64_COUNT;
-    if (thread_get_state(thread, ARM_THREAD_STATE64, (thread_state_t)&state, &n) == KERN_SUCCESS) {
+    int have_state = thread_get_state(thread, ARM_THREAD_STATE64, (thread_state_t)&state, &n) == KERN_SUCCESS;
+    if (have_state) {
         frames[depth++] = (uintptr_t)arm_thread_state64_get_pc(state);
         frames[depth++] = (uintptr_t)arm_thread_state64_get_lr(state);
         uintptr_t fp = (uintptr_t)arm_thread_state64_get_fp(state);
@@ -112,6 +209,21 @@ static void dump_loader_registers(thread_act_t thread) {
     }
     thread_resume(thread);
     if (depth == 0) { fprintf(stderr, "    (cannot read the loader thread's registers)\n"); return; }
+    fprintf(stderr, "    x0 %016llx x1 %016llx x2 %016llx x3 %016llx sp %016llx cpsr %08x\n",
+            (unsigned long long)state.__x[0], (unsigned long long)state.__x[1], (unsigned long long)state.__x[2],
+            (unsigned long long)state.__x[3], (unsigned long long)arm_thread_state64_get_sp(state), state.__cpsr);
+    fprintf(stderr, "    %d pc samples over ~%d ms, %llu faults meanwhile:\n", sampled, SAMPLES * 10, faults_after - faults_before);
+    for (int i = 0; i < sampled; ++i) {
+        int seen = 0;
+        for (int j = 0; j < i; ++j) seen |= samples[j] == samples[i];
+        if (seen) continue;
+        int times = 0;
+        for (int j = i; j < sampled; ++j) times += samples[j] == samples[i];
+        char label[16];
+        snprintf(label, sizeof(label), "x%d", times);
+        log_address(label, samples[i]);
+    }
+    log_faults("    ");
     log_address("pc", frames[0]);
     log_address("lr", frames[1]);
     for (int i = 2; i < depth; ++i) {
