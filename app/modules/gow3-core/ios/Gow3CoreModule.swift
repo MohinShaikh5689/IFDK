@@ -195,6 +195,10 @@ public class Gow3CoreModule: Module {
     // Flip rate every 5 s and a breakdown of each frame over 40 ms (faults, compiles, waits), while
     // the frame rate is being worked on.
     if !cpuOnly { setenv("GOW3_FRAME_STATS", "1", 0) }
+    // Documents/gow3/toggles.txt: a number whose bits switch GPU and memory optimizations off,
+    // re-read every 250 ms while the game runs (runtime_memory.c, gpu/shim/gow3_toggles.h), so a
+    // rendering problem can be narrowed down by swapping the file in the Files app. No file: 0.
+    setenv("GOW3_TOGGLE_FILE", root.appendingPathComponent("toggles.txt").path, 0)
     excludeGameFilesFromBackup()
     let log = gameLogURL.path
     watchThermalState(log: log)

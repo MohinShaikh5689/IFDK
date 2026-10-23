@@ -6,6 +6,12 @@ on 33/50 ms (60 Hz vblank pacing), GPU ticks 63-72 % of the frame, 400-3000 draw
 broken in places (item 3, now the most visible problem). Next: `GOW3_GPU_PROFILE=2` run for the pass split,
 the corruption, and pacing at 120 Hz / a 30 FPS cap.
 
+0.1.25: `Documents/gow3/toggles.txt` is the default `GOW3_TOGGLE_FILE` (bisect the texture corruption on
+the phone, files in `docs/toggles/`). Corruption on 0.1.24: rainbow diagonal stripes on most surfaces, blown-out
+white light; with `GOW3_NO_MSAA=0` textures were right for a while and then broke (FPS rose when they broke),
+so it is not MSAA itself but something that goes stale over time (caches, page tracking, the 64-fault
+safety net in probe.c that leaves a page untracked).
+
 0.1.23: hook stubs registered as guest code (the NoExec crash, item 1); buffer bounds checks off by default.
 0.1.24 (GPU time, item 2): guest MSAA off by default on MoltenVK (`GOW3_NO_MSAA=0` restores it), game
 surface at most 2x scale (1748x804 instead of 2622x1206), and `GOW3_GPU_PROFILE=2`: per-pass GPU time on
