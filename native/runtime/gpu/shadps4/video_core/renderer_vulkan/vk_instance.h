@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <span>
 #include <unordered_map>
 
@@ -19,6 +20,12 @@ struct WindowSystemInfo;
 VK_DEFINE_HANDLE(VmaAllocator)
 
 namespace Vulkan {
+
+/// gow3 (iOS): push descriptors are off (Instance::MaxPushDescriptors returns 0, so pipelines use
+/// descriptor sets). MoltenVK 1.4.1+ leaves its buffer-size metadata stale for pushed descriptors
+/// (KytyPS5 #1083), which corrupts rendering. GOW3_PUSH_DESCRIPTORS=0/1 overrides. Read by the
+/// shader binary cache version (vk_pipeline_serialization.cpp).
+inline std::atomic<bool> push_descriptors_off{false};
 
 class Instance {
 public:
@@ -420,7 +427,8 @@ public:
 
     /// Returns the maximum number of push descriptors.
     u32 MaxPushDescriptors() const {
-        return push_descriptor_props.maxPushDescriptors;
+        return push_descriptors_off.load(std::memory_order_relaxed) ? 0
+                                                                     : push_descriptor_props.maxPushDescriptors;
     }
 
     /// Returns the maximum size of a single VkDeviceMemory

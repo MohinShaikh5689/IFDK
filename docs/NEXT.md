@@ -6,6 +6,13 @@ on 33/50 ms (60 Hz vblank pacing), GPU ticks 63-72 % of the frame, 400-3000 draw
 broken in places (item 3, now the most visible problem). Next: `GOW3_GPU_PROFILE=2` run for the pass split,
 the corruption, and pacing at 120 Hz / a 30 FPS cap.
 
+0.1.27: push descriptors off on MoltenVK 1.4.1+ (`GOW3_PUSH_DESCRIPTORS=1` turns them back on). KytyPS5
+(PS5 emulator, PR #1083) found MoltenVK 1.4.1+ leaves buffer-size metadata stale for pushed descriptors and
+corrupts rendering; we ship MoltenVK 1.4.2 and shadPS4 pushes descriptors for almost every draw. The 0.1.22
+bounds checks (OpArrayLength reads that metadata) hiding Kratos fits the same fault. Test: textures, then FPS
+(descriptor sets cost some CPU on the GPU thread). Alternatives checked: KosmicKrisp (Mesa Vulkan on Metal) is
+conformant on macOS but has no iOS support yet (Oct 2026).
+
 0.1.26: `Documents/gow3/capture.txt` triggers the frame analyzer (output in `gow3/user/captures/`).
 `MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0` did not fix the textures either (and cost FPS: 16 vs 27), so
 argument buffers are out too. Next: the capture of a broken frame, and `[mvk-error]`/`[mvk-warn]` lines.

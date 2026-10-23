@@ -19,6 +19,7 @@
 #include "common/serdes.h"
 #include "common/scope_exit.h"
 #include "video_core/renderer_vulkan/vk_pipeline_serialization.h"
+#include "video_core/renderer_vulkan/vk_instance.h"
 #include "common/thread.h"
 #include "gow3_overlay.h"
 #include "core/emulator_settings.h"
@@ -48,7 +49,8 @@ u32 CurrentShaderBinaryVersion() {
     const char* bounds = std::getenv("GOW3_BUFFER_BOUNDS");
     // Without the variable the checks are off, the same binaries as GOW3_BUFFER_BOUNDS=0 (salt 8,
     // so 0.1.22's default-on cache entries are not reused).
-    const u32 bounds_salt = bounds && bounds[0] == '1' ? 4u : 8u;
+    const u32 bounds_salt = (bounds && bounds[0] == '1' ? 4u : 8u) |
+                            (push_descriptors_off.load(std::memory_order_relaxed) ? 16u : 0u);
     return LightingTest::ShaderBinaryVersion(
         Serialization::ShaderBinaryVersion,
         LightingTest::ShaderBinarySalt(LightingTest::Current().dref,

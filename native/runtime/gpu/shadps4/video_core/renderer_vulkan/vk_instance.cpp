@@ -848,6 +848,16 @@ void Instance::CollectDeviceParameters() {
                              ? *no_msaa_env == '1'
                              : gow3_no_msaa_default(static_cast<VkDriverId>(driver_id)) != 0;
     AmdGpu::no_msaa.store(no_msaa, std::memory_order_relaxed);
+
+    // gow3 (iOS): see push_descriptors_off (vk_instance.h). MoltenVK's driverVersion is
+    // major * 10000 + minor * 100 + patch.
+    const char* push_env = std::getenv("GOW3_PUSH_DESCRIPTORS");
+    const bool push_off = push_env && *push_env
+                              ? *push_env == '0'
+                              : driver_id == vk::DriverId::eMoltenvk && properties.driverVersion >= 10401;
+    push_descriptors_off.store(push_off, std::memory_order_relaxed);
+    std::printf("GPU: push descriptors %s\n",
+                push_off ? "off, descriptor sets (GOW3_PUSH_DESCRIPTORS=1 turns them on)" : "on");
     std::printf("GPU: guest multisampling %s\n",
                 no_msaa ? "off (single-sampled images; GOW3_NO_MSAA=0 keeps it)" : "on");
 
