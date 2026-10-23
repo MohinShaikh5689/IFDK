@@ -46,7 +46,9 @@ namespace {
 // GOW3_AMD_PATHS_OFF=shaderext, GOW3_BUFFER_BOUNDS) get their own shader binary cache version.
 u32 CurrentShaderBinaryVersion() {
     const char* bounds = std::getenv("GOW3_BUFFER_BOUNDS");
-    const u32 bounds_salt = bounds ? (bounds[0] == '1' ? 4u : 8u) : 0u;
+    // Without the variable the checks are off, the same binaries as GOW3_BUFFER_BOUNDS=0 (salt 8,
+    // so 0.1.22's default-on cache entries are not reused).
+    const u32 bounds_salt = bounds && bounds[0] == '1' ? 4u : 8u;
     return LightingTest::ShaderBinaryVersion(
         Serialization::ShaderBinaryVersion,
         LightingTest::ShaderBinarySalt(LightingTest::Current().dref,

@@ -107,6 +107,13 @@ static void protect(void *p, size_t size, unsigned flags) {
     if (mprotect(p, size, mode)) fail("mprotect failed");
 #endif
 }
+/* Code the game reaches outside the image (hook and ISA rewrite stubs): executable, and
+ * registered with the guest CPU, which only translates registered ranges (FEXCore reports any
+ * other target as NOEXEC and the thread dies on its first jump there). */
+static void protect_code(void *p, size_t size) {
+    protect(p, size, 5);
+    guest_cpu_code((uintptr_t)p, size);
+}
 static ABI __attribute__((noreturn)) void unresolved(uint32_t id, uintptr_t argument) {
     if (id >= import_count) fail("bad import trap index");
     uintptr_t caller=guest_cpu_return_address((uintptr_t)__builtin_return_address(0))-(uintptr_t)image;
@@ -584,7 +591,7 @@ static void install_cheats(Segment *segments, uint64_t count, uint64_t size) {
             printf("Cheats: %s unavailable (hook outside relative-jump range)\n", names[id]);
             continue;
         }
-        protect(stubs, page_size, 5);
+        protect_code(stubs, page_size);
         for (unsigned i = 0; i < GOW3_CHEAT_HOOK_COUNT; ++i) {
             const Gow3CheatHook *hook = &gow3_cheat_hooks[i];
             if (hook->id != id) continue;
@@ -613,7 +620,7 @@ static void install_actor_watch(Segment *segments, uint64_t count, uint64_t size
         return;
     }
     gow3_actor_build_stub(stub, gow3_actor_slots_address(), (uintptr_t)(image + at + GOW3_ACTOR_HOOK_LENGTH));
-    protect(stub, page_size, 5);
+    protect_code(stub, page_size);
     const int32_t relative = (int32_t)delta;
     image[at] = 0xe9;
     memcpy(image + at + 1, &relative, 4);
@@ -648,7 +655,7 @@ static void install_orb_multiplier(Segment *segments, uint64_t count, uint64_t s
         displacements[i] = (int32_t)delta;
     }
     memcpy(stub, code, sizeof(code));
-    protect(stub, page_size, 5);
+    protect_code(stub, page_size);
     for (unsigned i = 0; i < 3; ++i)
         memcpy(image + calls[i] + 1, &displacements[i], 4);
     gow3_orbs_status(1);
@@ -685,7 +692,7 @@ static void install_stat_multipliers(Segment *segments, uint64_t count, uint64_t
                                    gow3_orb_pickup_multiplier(2),
                                    (uintptr_t)(image + pickup_at + GOW3_ORB_PICKUP_LENGTH));
     }
-    if (stubs) protect(stubs, page_size, 5);
+    if (stubs) protect_code(stubs, page_size);
     damage = damage && install_jump(damage_at, GOW3_DAMAGE_HOOK_LENGTH, stubs);
     pickup = pickup && install_jump(pickup_at, GOW3_ORB_PICKUP_LENGTH, stubs + 256);
     gow3_stat_multipliers_status(damage, pickup);
@@ -1108,7 +1115,7 @@ int main(int argc, char **argv) {
         else printf("ISA: CPU lacks %s: %u sites rewritten (%u jmp, %u relocated, %u int3), %u skipped\n",
                     missing, r.rewritten, r.jmp, r.relocated, r.int3, r.skipped);
         runtime_set_report_hook(isa_report_hook);
-        protect(stubs, stub_area, 5);
+        protect_code(stubs, stub_area);
     }
     protect(traps, round_page((import_count + 1) * 32), 5);
     protect(image, round_page(size), 0);

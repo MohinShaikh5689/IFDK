@@ -1,5 +1,7 @@
 # Next tasks (handover, 2026-10-23)
 
+0.1.23: hook stubs registered as guest code (the NoExec crash, item 1); buffer bounds checks off by default.
+
 ## State on the device (0.1.22, save from the PC version loaded)
 - Title screen and menus look right at 30-60 fps (600p patch `1066x600`, `show_fps=1`).
 - Gameplay renders correctly in some areas (the tomb area: textures, fire, lighting, Kratos all right)
@@ -23,7 +25,17 @@ What was tried and its result:
 
 ## Next, in order
 
-### 1. The NoExec crash (top blocker)
+### 1. The NoExec crash (top blocker) — likely fixed in 0.1.23, confirm on the device
+Cause found in the code (2026-10-23): probe.c's hooks (red orb multiplier, cheats, enemy health bar
+damage hook, damage/orb pickup multipliers) jump from the game to x86 stubs in their own low-map pages,
+which follow the image, import traps and data traps, i.e. near image + 0x2400000. On iOS `protect(..., 5)`
+only makes them readable, and they were **never registered with `guest_cpu_code`**, so FEXCore's
+`QueryGuestExecutableRange` said NOEXEC the first time a hooked path ran (an enemy hit, an orb pickup).
+Stubs sit at `i * 256` in their page, which matches the `+0x600` / `+0x700` / `+0x0` offsets of the three
+targets. 0.1.23 registers every stub page (`protect_code` in probe.c), and also the ISA rewrite stub area
+after the image, which had the same gap. If the crash still happens on 0.1.23, the notes below apply.
+
+Earlier analysis:
 Log signature: `[iOS-noexec] status=NOEXEC` at game offsets `0x23f8600`, `0x2400700`, `0x2410000`, then
 `Guest fault (signal 11) ... address 0x0`. NOEXEC means FEX's decoder asked `QueryGuestExecutableRange`
 (`native/cpu/guest_cpu_fex_darwin.cpp`) and the address is not registered code. Registered code is the
@@ -79,8 +91,9 @@ Rendering is right in the tomb area and wrong at the Hades gate, so find the pas
   `MVK_CONFIG_TEXTURE_1D_AS_2D`, `MVK_CONFIG_SHADER_COMPRESSION_ALGORITHM`.
 
 ### 4. Clean-up
-- Remove the 0.1.22 buffer bounds checks (or leave them off by default): they made Kratos invisible and
-  did not fix the textures. Most likely `OpArrayLength` does not give the bound range on MoltenVK.
+- 0.1.23: the 0.1.22 buffer bounds checks are off by default (`GOW3_BUFFER_BOUNDS=1` turns them on); they
+  made Kratos invisible and did not fix the textures. Most likely `OpArrayLength` does not give the bound
+  range on MoltenVK. `GOW3_BUFFER_BOUNDS=0` in `env.txt` is no longer needed.
 - Make the confirmed `env.txt` settings defaults in code once they are proven.
 
 ## Earlier handover (2026-10-22 night)

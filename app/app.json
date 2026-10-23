@@ -2,7 +2,7 @@
   "expo": {
     "name": "gow3-ios",
     "slug": "gow3-ios",
-    "version": "0.1.22",
+    "version": "0.1.23",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",

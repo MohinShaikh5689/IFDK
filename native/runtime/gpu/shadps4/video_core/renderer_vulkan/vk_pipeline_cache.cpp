@@ -385,12 +385,11 @@ PipelineCache::PipelineCache(const Instance& instance_, Scheduler& scheduler_,
         .needs_lds_barriers = instance.GetDriverID() == vk::DriverId::eNvidiaProprietary ||
                               instance.GetDriverID() == vk::DriverId::eMesaKosmickrisp,
         .needs_buffer_offsets = instance.StorageMinAlignment() > 4,
-        // gow3: GOW3_BUFFER_BOUNDS=0/1 overrides.
-        .needs_buffer_bounds_checks = [&] {
-            if (const char* env = std::getenv("GOW3_BUFFER_BOUNDS")) {
-                return env[0] == '1';
-            }
-            return !instance.IsRobustBufferAccess2Supported();
+        // gow3: off unless GOW3_BUFFER_BOUNDS=1. On MoltenVK the checks hid Kratos (0.1.22) and did
+        // not change the corrupted textures, so they are a test knob only.
+        .needs_buffer_bounds_checks = [] {
+            const char* env = std::getenv("GOW3_BUFFER_BOUNDS");
+            return env && env[0] == '1';
         }(),
         .needs_unorm_fixup = instance.GetDriverID() == vk::DriverId::eMesaKosmickrisp,
         .needs_clip_distance_emulation = instance.GetDriverID() == vk::DriverId::eNvidiaProprietary,
