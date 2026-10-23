@@ -1,5 +1,7 @@
 # Next tasks (handover, 2026-10-23)
 
+**Latest: docs/STATUS-2026-10-23.md** (findings and next moves for 0.1.23-0.1.27).
+
 **0.1.24 on the device (2026-10-23 evening): playable.** Played through the Poseidon fight with no crash
 (jumps, hits, orbs: the NoExec crash is fixed). 27 FPS in the frame stats (was 8-12 on 0.1.22), frames land
 on 33/50 ms (60 Hz vblank pacing), GPU ticks 63-72 % of the frame, 400-3000 draws/frame. Textures still badly
