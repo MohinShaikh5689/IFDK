@@ -90,6 +90,9 @@ inline std::atomic<std::uint64_t> buffer_upload_bytes{0};
 inline std::atomic<int> gpu_thread_clock{-1}; ///< clockid_t of the GPU command thread
 inline std::atomic<unsigned long> gpu_thread_id{0}; ///< Windows thread id of the GPU command thread
 inline std::atomic<std::uint64_t> draws{0}, dispatches{0}, submissions{0};
+/// Render passes begun (Scheduler::BeginRendering) and the attachments they load from memory
+/// instead of clearing: on a tile GPU (Apple) each load and each store moves the whole target.
+inline std::atomic<std::uint64_t> render_passes{0}, attachment_loads{0};
 /// Frames the GPU command thread has started (display pass), for per-frame diagnostics.
 inline std::atomic<std::uint64_t> gpu_frames{0};
 /// Wall time spent in operations suspected of stalls (ns, all threads).

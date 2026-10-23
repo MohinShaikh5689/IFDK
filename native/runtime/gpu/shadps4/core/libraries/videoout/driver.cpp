@@ -506,7 +506,8 @@ void VideoOutDriver::Flip(const Request& req) {
                         "%.0f write faults/s, %lld hot pages; GPU thread %.2f us/draw, "
                         "%.0f draws/frame, idle %.1f%%; blocked: recorder %.1f%%, host copies "
                         "%.1f%% (%.0f/frame), copy threads %.1f%%, GPU ticks %.1f%%; "
-                        "reduced-size draws %.0f/frame of %.0f in the scene\n",
+                        "reduced-size draws %.0f/frame of %.0f in the scene; "
+                        "render passes %.0f/frame (%.0f attachment loads)\n",
                         frames / window, worst_ms, EmulatorSettings.GetVblankFrequency(), compiles,
                         compile_ns / 1e6, capture_ms, async_ms, wait_ms, snapshot_ms, guest_wait_ms,
                         pending_draws,
@@ -520,7 +521,9 @@ void VideoOutDriver::Flip(const Request& req) {
                         Gow3Stats::copy_threads_wait_ns.exchange(0) / (window * 1e7),
                         Gow3Stats::tick_wait_ns.exchange(0) / (window * 1e7),
                         frames ? double(Gow3Stats::reduced_draws.exchange(0)) / frames : 0.0,
-                        frames ? double(Gow3Stats::scene_draws.exchange(0)) / frames : 0.0);
+                        frames ? double(Gow3Stats::scene_draws.exchange(0)) / frames : 0.0,
+                        frames ? double(Gow3Stats::render_passes.exchange(0)) / frames : 0.0,
+                        frames ? double(Gow3Stats::attachment_loads.exchange(0)) / frames : 0.0);
             presenter->GetRasterizer().GetPipelineCache().ReportCompilerStats();
             Vulkan::WaitDiagnostics::Report();
             // Frame pacing: spread of the guest flip intervals (judder that the mean hides).

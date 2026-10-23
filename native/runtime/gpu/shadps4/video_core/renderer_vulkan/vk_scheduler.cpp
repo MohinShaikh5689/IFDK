@@ -90,6 +90,16 @@ void Scheduler::BeginRendering(const RenderState& new_state) {
     EndRendering();
     is_rendering = true;
     render_state = new_state;
+    {
+        u64 loads = 0;
+        for (u32 i = 0; i < render_state.num_color_attachments; ++i) {
+            loads += render_state.color_attachments[i].is_clear ? 0 : 1;
+        }
+        const auto& ds = render_state.depth_stencil_attachment;
+        loads += (ds.has_depth && !ds.depth_clear) || (ds.has_stencil && !ds.stencil_clear) ? 1 : 0;
+        Gow3Stats::render_passes.fetch_add(1, std::memory_order_relaxed);
+        Gow3Stats::attachment_loads.fetch_add(loads, std::memory_order_relaxed);
+    }
 
     std::array<vk::RenderingAttachmentInfo, 8> color_attachments;
     for (u32 i = 0; i < render_state.num_color_attachments; ++i) {
