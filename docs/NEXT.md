@@ -6,6 +6,10 @@ on 33/50 ms (60 Hz vblank pacing), GPU ticks 63-72 % of the frame, 400-3000 draw
 broken in places (item 3, now the most visible problem). Next: `GOW3_GPU_PROFILE=2` run for the pass split,
 the corruption, and pacing at 120 Hz / a 30 FPS cap.
 
+0.1.26: `Documents/gow3/capture.txt` triggers the frame analyzer (output in `gow3/user/captures/`).
+`MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0` did not fix the textures either (and cost FPS: 16 vs 27), so
+argument buffers are out too. Next: the capture of a broken frame, and `[mvk-error]`/`[mvk-warn]` lines.
+
 Toggle test on 0.1.25: `all-off`, `tracking` and `none` all leave the textures broken, so the corruption is
 not in the port's switchable optimizations. Next suspect: MoltenVK itself, first argument buffers
 (`MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS=0` in env.txt: wrong textures bound would give these stripes).

@@ -199,6 +199,10 @@ public class Gow3CoreModule: Module {
     // re-read every 250 ms while the game runs (runtime_memory.c, gpu/shim/gow3_toggles.h), so a
     // rendering problem can be narrowed down by swapping the file in the Files app. No file: 0.
     setenv("GOW3_TOGGLE_FILE", root.appendingPathComponent("toggles.txt").path, 0)
+    // Documents/gow3/capture.txt (any content): the frame analyzer records the next frame's passes,
+    // targets, formats and shaders to Documents/gow3/user/captures/frame_*.txt and removes the file
+    // (vk_frame_capture.cpp). The PC port starts it with F11, which the phone has no key for.
+    setenv("GOW3_CAPTURE_TRIGGER", root.appendingPathComponent("capture.txt").path, 0)
     excludeGameFilesFromBackup()
     let log = gameLogURL.path
     watchThermalState(log: log)
