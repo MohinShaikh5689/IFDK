@@ -48,10 +48,12 @@ final class Gow3GameViewController: UIViewController {
   override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }
   override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation { .landscapeRight }
 
-  // The drawable follows the view in pixels (MoltenVK sizes the swapchain from it).
+  // The drawable follows the view in pixels (MoltenVK sizes the swapchain from it), at most 2x:
+  // the game renders at 600-720p, so the 3x screen (2622x1206) only made the final full-screen
+  // pass and the present more than twice as large, for no sharper picture.
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
-    let scale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
+    let scale = min(view.window?.screen.nativeScale ?? UIScreen.main.nativeScale, 2)
     metalView.metalLayer.contentsScale = scale
     metalView.metalLayer.drawableSize = CGSize(width: view.bounds.width * scale, height: view.bounds.height * scale)
     if feedsGame { publishSurface() }

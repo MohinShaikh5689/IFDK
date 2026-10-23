@@ -3,6 +3,12 @@
 // written where each of them starts (and at the frame end); the time to the next timestamp is
 // charged to its label, barriers and copies recorded in between included. Results are read four
 // frames later and printed every 5 s: GPU ms per frame by label.
+// GOW3_GPU_PROFILE=2 (MoltenVK on Apple GPUs): those GPUs sample counters only at encoder
+// boundaries, and MoltenVK gives every timestamp in a command buffer the same value (the
+// profile read 0 ms everywhere). Mode 2 submits the command buffer after each timestamp, so
+// consecutive timestamps are command buffer completions and their difference is the GPU time of
+// the labelled work (plus any time the GPU sat idle waiting for it: the frame total is the frame
+// time, not GPU busy time). Extra submissions cost some speed; a diagnostic only.
 
 #pragma once
 
@@ -52,12 +58,16 @@ public:
         return other == &scheduler;
     }
 
+    /// Called by the scheduler as it submits: in mode 2 a timestamp for the open label (the
+    /// submission ends the command buffer itself), else the "between submissions" segment.
+    void OnSubmit();
+
     /// At the display pass: closes the frame's last segment, reads an old frame's results.
     void BeginFrame();
 
 private:
     GpuProfiler(const Instance& instance, Scheduler& scheduler);
-    void WriteTimestamp(u64 key);
+    void WriteTimestamp(u64 key, bool submit = true);
     void Collect(u32 slice);
     void Print();
 
@@ -83,6 +93,8 @@ private:
     std::unordered_map<u64, Total> totals;
     u64 frames = 0;
     u64 current = 0;
+    bool submit_each = false;
+    bool submitting = false; ///< inside the submission a mode 2 timestamp started
     std::chrono::steady_clock::time_point window = std::chrono::steady_clock::now();
 };
 

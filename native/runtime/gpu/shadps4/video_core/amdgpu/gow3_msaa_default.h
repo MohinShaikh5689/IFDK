@@ -7,10 +7,14 @@
 // lighting shows black lines (#65). Intel's Windows driver: the same lines on Arc A750, B580
 // and 140V (#28). NVIDIA, RADV, AMDVLK, Mesa ANV and MoltenVK read it correctly as far as
 // known and keep the game's multisampling.
+// gow3 (iOS): off on MoltenVK too, for speed. Metal has no mixed sample counts, so the 1-sample
+// colour targets were forced to the depth's 2 samples (PassCensus ForcedEqual), and Apple's tile
+// GPUs then stored 2-sample colour and depth to memory in every pass. GOW3_NO_MSAA=0 keeps it.
 #pragma once
 
 #include <vulkan/vulkan_core.h>
 
 static inline int gow3_no_msaa_default(VkDriverId driver) {
-    return driver == VK_DRIVER_ID_AMD_PROPRIETARY || driver == VK_DRIVER_ID_INTEL_PROPRIETARY_WINDOWS;
+    return driver == VK_DRIVER_ID_AMD_PROPRIETARY || driver == VK_DRIVER_ID_INTEL_PROPRIETARY_WINDOWS ||
+           driver == VK_DRIVER_ID_MOLTENVK;
 }

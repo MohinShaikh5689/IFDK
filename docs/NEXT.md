@@ -1,6 +1,13 @@
 # Next tasks (handover, 2026-10-23)
 
 0.1.23: hook stubs registered as guest code (the NoExec crash, item 1); buffer bounds checks off by default.
+0.1.24 (GPU time, item 2): guest MSAA off by default on MoltenVK (`GOW3_NO_MSAA=0` restores it), game
+surface at most 2x scale (1748x804 instead of 2622x1206), and `GOW3_GPU_PROFILE=2`: per-pass GPU time on
+MoltenVK (one submission per timestamp; mode 1 read 0 ms there). Device steps:
+1. Play the tomb area with `show_fps=1`; compare with `GOW3_NO_MSAA=0` in `env.txt` (fps and picture).
+2. Add `GOW3_GPU_PROFILE=2` to `env.txt`, play 30 s in a slow scene, Copy logs: the `GPU profile:` lines
+   list ms per frame by pass. The fps is lower in this mode; only the split between passes counts.
+3. Then fix the top passes (load/store churn, a format fallback, a slow compute pass) to reach 35+ fps.
 
 ## State on the device (0.1.22, save from the PC version loaded)
 - Title screen and menus look right at 30-60 fps (600p patch `1066x600`, `show_fps=1`).

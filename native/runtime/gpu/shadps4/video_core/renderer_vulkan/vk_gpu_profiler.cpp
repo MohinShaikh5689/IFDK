@@ -11,10 +11,14 @@ namespace Vulkan {
 
 void GpuProfiler::Init(const Instance& instance, Scheduler& scheduler) {
     const char* env = std::getenv("GOW3_GPU_PROFILE");
-    if (!env || env[0] != '1' || instance_ptr) {
+    if (!env || (env[0] != '1' && env[0] != '2') || instance_ptr) {
         return;
     }
     instance_ptr = new GpuProfiler(instance, scheduler);
+    instance_ptr->submit_each = env[0] == '2';
+    if (instance_ptr->submit_each) {
+        std::printf("GPU profile: mode 2, one submission per timestamp\n");
+    }
 }
 
 GpuProfiler::GpuProfiler(const Instance& instance, Scheduler& scheduler_)
@@ -32,7 +36,10 @@ GpuProfiler::GpuProfiler(const Instance& instance, Scheduler& scheduler_)
     std::printf("GPU profile: on (timestamp period %.2f ns)\n", period_ns);
 }
 
-void GpuProfiler::WriteTimestamp(u64 key) {
+void GpuProfiler::WriteTimestamp(u64 key, bool submit) {
+    if (submitting) {
+        return; // mode 2: the submission this timestamp started (its "between submissions" mark)
+    }
     if (paused || used[slice] + 1 >= SliceQueries) {
         return; // the frame's slice is full: the rest of the frame goes to the last label
     }
@@ -45,6 +52,20 @@ void GpuProfiler::WriteTimestamp(u64 key) {
     scheduler.Record([pool = *pool, query](vk::CommandBuffer cmdbuf) {
         cmdbuf.writeTimestamp2(vk::PipelineStageFlagBits2::eAllCommands, pool, query);
     });
+    if (submit_each && submit) {
+        submitting = true;
+        scheduler.Flush();
+        submitting = false;
+    }
+}
+
+void GpuProfiler::OnSubmit() {
+    if (submit_each) {
+        WriteTimestamp(current, false);
+        return;
+    }
+    // Until the next submission's first timestamp: mostly the GPU waiting for it.
+    Mark(0x5B317ull, [] { return std::string{"(between submissions: GPU idle)"}; });
 }
 
 void GpuProfiler::BeginFrame() {
