@@ -1,5 +1,11 @@
 # Next tasks (handover, 2026-10-23)
 
+**0.1.24 on the device (2026-10-23 evening): playable.** Played through the Poseidon fight with no crash
+(jumps, hits, orbs: the NoExec crash is fixed). 27 FPS in the frame stats (was 8-12 on 0.1.22), frames land
+on 33/50 ms (60 Hz vblank pacing), GPU ticks 63-72 % of the frame, 400-3000 draws/frame. Textures still badly
+broken in places (item 3, now the most visible problem). Next: `GOW3_GPU_PROFILE=2` run for the pass split,
+the corruption, and pacing at 120 Hz / a 30 FPS cap.
+
 0.1.23: hook stubs registered as guest code (the NoExec crash, item 1); buffer bounds checks off by default.
 0.1.24 (GPU time, item 2): guest MSAA off by default on MoltenVK (`GOW3_NO_MSAA=0` restores it), game
 surface at most 2x scale (1748x804 instead of 2622x1206), and `GOW3_GPU_PROFILE=2`: per-pass GPU time on
