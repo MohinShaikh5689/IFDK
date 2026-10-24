@@ -322,6 +322,11 @@ public:
     /// Runs the garbage collector.
     void RunGarbageCollector();
 
+    /// gow3: GOW3_TEXTURE_VERIFY=1. Every 2 s, cached textures last uploaded from guest memory
+    /// are hashed again; one whose memory changed without an invalidation is stale (the GPU
+    /// draws an old copy): it is logged and uploaded again.
+    void VerifyTextures();
+
     template <typename Func>
     void ForEachImageInRegion(VAddr cpu_addr, size_t size, Func&& func) {
         using FuncReturn = typename std::invoke_result<Func, ImageId, Image&>::type;

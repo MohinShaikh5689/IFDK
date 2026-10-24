@@ -22,6 +22,18 @@ in fights 25-27 ms of GPU time per frame went to 4-5 passes with no color or dep
 the heaviest scenes (2000+ draws) run ~16 FPS. Textures still break over time. `GOW3_SUBMIT_WAIT=1` did not
 help (broke fast), so reuse before the GPU finished is ruled out.
 
+**0.1.31 on the device:** no `Alias copy:` line in a broken scene, so the game makes no mixed
+compressed/uncompressed alias copies there. Also ruled out on 0.1.30/0.1.31: resolution (600p, 720p and 1080p
+all break), the Video Arena (the 600p patch sets 2.25 GiB; DMEM is 5056 MiB), `GOW3_READBACKS=2` (no change;
+readback waits are 0 ms).
+
+**0.1.32 (diagnostics):** the buffer cache and memory tracker work in 16 KiB tracker pages on iOS
+(`TRACKER_PAGE_BITS` 14; Android 12). A texture whose region is marked GPU-modified uploads from the buffer
+cache's copy instead of guest memory. The log now prints `Texture uploads: N from memory, M from the GPU
+buffer` every 5 s and the first GPU-sourced addresses; `GOW3_TEXTURE_FROM_MEMORY=1` always uploads from guest
+memory. `GOW3_TEXTURE_VERIFY=1` re-hashes textures uploaded from memory every 2 s and logs and re-uploads
+stale ones (`Texture verify: stale ...`): stale = a missed invalidation; none stale but broken = rendering.
+
 **0.1.31 (main change):** alias copies between uncompressed storage images and BC textures go through a
 buffer on iOS (vk_runtime.cpp `CopyAliasImage`). God of War III streams textures with GPU writes to storage
 images over the texture pool (texture_cache.cpp `ApplyBackingWrites`), and Metal has no copy between

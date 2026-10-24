@@ -3,6 +3,8 @@
 
 #include <chrono>
 #include <array>
+#include <atomic>
+#include <cstdio>
 #include <map>
 #include <unordered_map>
 #include <algorithm>
@@ -371,9 +373,59 @@ std::pair<const Buffer*, u64> BufferCache::ObtainBuffer(VAddr device_addr, u32 s
     return {arena, arena->Offset(device_addr)};
 }
 
+namespace {
+// gow3 (iOS): where texture uploads take their bytes. The memory tracker marks GPU writes per
+// tracker page, 16K on iOS (4K on Android): a region marked GPU-modified uploads from the
+// buffer cache's copy, which may also cover CPU-written textures next to the GPU's writes.
+// GOW3_TEXTURE_FROM_MEMORY=1 always uploads from guest memory (readbacks are resolved first).
+struct TextureSourceStats {
+    std::atomic<u64> memory{0}, memory_bytes{0}, gpu{0}, gpu_bytes{0};
+    std::atomic<u32> logged{0};
+    std::atomic<s64> last_print{0};
+};
+TextureSourceStats texture_sources;
+
+bool TextureFromMemory() {
+    static const bool on = [] {
+        const char* env = std::getenv("GOW3_TEXTURE_FROM_MEMORY");
+        const bool value = env && *env == '1';
+        if (value) {
+            std::printf("GPU: texture uploads always from guest memory\n");
+        }
+        return value;
+    }();
+    return on;
+}
+
+void NoteTextureSource(VAddr address, u32 size, bool gpu) {
+    auto& t = texture_sources;
+    (gpu ? t.gpu : t.memory).fetch_add(1, std::memory_order_relaxed);
+    (gpu ? t.gpu_bytes : t.memory_bytes).fetch_add(size, std::memory_order_relaxed);
+    if (gpu && t.logged.fetch_add(1, std::memory_order_relaxed) < 24) {
+        std::printf("Texture upload from the GPU buffer: %#llx, %u bytes%s\n",
+                    static_cast<unsigned long long>(address), size,
+                    TextureFromMemory() ? " (taken from memory instead)" : "");
+    }
+    const s64 now = std::chrono::duration_cast<std::chrono::seconds>(
+                        std::chrono::steady_clock::now().time_since_epoch())
+                        .count();
+    s64 last = t.last_print.load(std::memory_order_relaxed);
+    if (now - last >= 5 && t.last_print.compare_exchange_strong(last, now)) {
+        std::printf("Texture uploads: %llu from memory (%.1f MB), %llu from the GPU buffer "
+                    "(%.1f MB)\n",
+                    static_cast<unsigned long long>(t.memory.exchange(0)),
+                    double(t.memory_bytes.exchange(0)) / (1024.0 * 1024.0),
+                    static_cast<unsigned long long>(t.gpu.exchange(0)),
+                    double(t.gpu_bytes.exchange(0)) / (1024.0 * 1024.0));
+    }
+}
+} // namespace
+
 std::pair<const Buffer*, u64> BufferCache::ObtainBufferForImage(VAddr device_addr, u32 size) {
     texture_cache.ResolveReadbacks(device_addr, size, true, ReadbackSource::BufferForImage);
-    if (IsRegionGpuModified(device_addr, size)) {
+    const bool gpu_modified = IsRegionGpuModified(device_addr, size);
+    NoteTextureSource(device_addr, size, gpu_modified);
+    if (gpu_modified && !TextureFromMemory()) {
         return ObtainBuffer(device_addr, size, false);
     }
     const auto staging = staging_pool.Request(size, VideoCore::MemoryType::HostUncached,

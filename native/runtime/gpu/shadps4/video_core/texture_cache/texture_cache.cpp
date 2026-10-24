@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <xxhash.h>
 #include "video_core/amdgpu/liverpool.h"
@@ -26,6 +29,21 @@
 #include "video_core/texture_cache/tile_manager.h"
 
 namespace VideoCore {
+
+namespace {
+bool TextureVerifyOn() {
+    static const bool on = [] {
+        const char* env = std::getenv("GOW3_TEXTURE_VERIFY");
+        const bool value = env && *env == '1';
+        if (value) {
+            std::printf("GPU: texture verify on (every 2 s)\n");
+        }
+        return value;
+    }();
+    return on;
+}
+} // namespace
+
 
 static constexpr u64 PageShift = 12;
 static constexpr u64 NumFramesBeforeRemoval = 32;
@@ -1414,6 +1432,15 @@ void TextureCache::RefreshImage(Image& image) {
 
     scheduler.EndRendering();
 
+    // gow3: GOW3_TEXTURE_VERIFY. Only uploads from guest memory: a GPU-modified region's
+    // memory is not current until it is read back.
+    image.verify_hash = 0;
+    if (TextureVerifyOn() && !is_gpu_modified &&
+        !buffer_cache.IsRegionGpuModified(image.info.guest_address, image.info.guest_size)) {
+        image.verify_hash = XXH3_64bits(std::bit_cast<const u8*>(image.info.guest_address),
+                                        image.info.guest_size);
+    }
+
     const auto [in_buffer, in_offset] =
         buffer_cache.ObtainBufferForImage(image.info.guest_address, image.info.guest_size);
     const auto [buffer, offset] = tile_manager.DetileImage(in_buffer, in_offset, image.info);
@@ -1764,8 +1791,58 @@ void TextureCache::RunGarbageCollector() {
         ApplyBackingWrites();
     }
 
+    VerifyTextures();
     GarbageCollectImages();
     GarbageCollectSamplers();
+}
+
+void TextureCache::VerifyTextures() {
+    if (!TextureVerifyOn()) {
+        return;
+    }
+    static auto last = std::chrono::steady_clock::now();
+    const auto now = std::chrono::steady_clock::now();
+    if (now - last < std::chrono::seconds(2)) {
+        return;
+    }
+    last = now;
+    static u32 logged = 0;
+    u32 checked = 0, stale = 0;
+    u64 bytes = 0;
+    std::scoped_lock lock{mutex};
+    lru_cache.ForEachItemBelow(gc_tick, [&](ImageId image_id) {
+        Image& image = slot_images[image_id];
+        const VAddr address = image.info.guest_address;
+        const u32 size = image.info.guest_size;
+        if (!image.verify_hash || False(image.flags & ImageFlagBits::Registered) ||
+            True(image.flags & (ImageFlagBits::Dirty | ImageFlagBits::GpuModified)) ||
+            buffer_cache.IsRegionGpuModified(address, size)) {
+            return false;
+        }
+        ++checked;
+        bytes += size;
+        if (XXH3_64bits(std::bit_cast<const u8*>(address), size) == image.verify_hash) {
+            return false;
+        }
+        ++stale;
+        if (logged < 48) {
+            ++logged;
+            std::printf("Texture verify: stale %#llx %s %ux%u tile %u array %u mips %u, %u bytes, "
+                        "tracked %d, aliased %d\n",
+                        static_cast<unsigned long long>(address),
+                        vk::to_string(image.info.pixel_format).c_str(), image.info.size.width,
+                        image.info.size.height, u32(image.info.tile_mode),
+                        u32(image.info.array_mode), image.info.resources.levels, size,
+                        int(image.IsTracked()), int(True(image.flags & ImageFlagBits::Aliased)));
+        }
+        image.verify_hash = 0;
+        InvalidateAlias(image);
+        image.flags |= ImageFlagBits::CpuDirty;
+        UntrackImage(image_id);
+        return false;
+    });
+    std::printf("Texture verify: %u textures checked (%.0f MB), %u stale (uploaded again)\n",
+                checked, double(bytes) / (1024.0 * 1024.0), stale);
 }
 
 void TextureCache::TouchImage(const Image& image) {

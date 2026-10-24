@@ -193,6 +193,8 @@ public:
     boost::container::static_vector<u64, 16> mip_hashes{};
     u64 lru_id{};
     u64 hash{};
+    /// gow3: GOW3_TEXTURE_VERIFY, hash of guest memory at the last upload from it (0: none).
+    u64 verify_hash{};
 
 private:
     static Common::IncrementalIdProvider<u64> global_image_uid;
