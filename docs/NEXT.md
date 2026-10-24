@@ -58,6 +58,20 @@ Android's TSO settings (all off) crash at once (a jump to float data, 0x3f800000
 strict TSO (vector + memcpy/set TSO on) changes nothing; `GOW3_FEX_AVX=0` crashes on the game's first
 AVX instruction (the game needs AVX).
 
+**0.1.37 on the device:** still broken with the upstream fixes (run 1) and with every A19-only feature off
+(run 2, `FEX host features: ... CSSC 0 FlagM 0 FlagM2 0 FRINTTS 0 RPRES 0 RCPC2 0 FCMA 0`). Test E (GPU memory
+copies in order: `GOW3_COPY_THREADS=0`, toggles 672000 = deferred uploads, deferred stream copies, parallel
+copies, pooled small copies off) also still broken.
+
+**Texture forensics (2026-10-24, `native/scripts/dumpcheck.py` + a WAD search):** the WADs
+(`EXEC/WAD/PS4_LE/*.WAD`, uncompressed) store textures linear; the game tiles them. Texture 159 of a dump
+matches its WAD bytes exactly; texture 160's first 524,800 bytes hold other, finished (tiled) textures that
+also sit correctly at their own addresses. Across all BC textures of two dumps, 512-byte tiled chunks appear
+at two addresses ~30,000 times; the address deltas are texture sizes (0x156400, 0x2ab200, 0x801600) or pairs
+of textures hold the same data shifted by 1536/2048 bytes. So correct texture data is written to a wrong
+address (neighbouring slot or a few KiB off), not produced wrong. Next: a write-provenance trace for texture
+memory (guest store RIP / file read / DMA copy / readback, with address and time) to catch the bad write.
+
 **0.1.37:** `native/patches/fex/0003-upstream-fex-2609-translation-fixes.patch`: 15 upstream FEX correctness
 fixes between 2607 and 2609.1 cherry-picked unchanged (cmpxchg 32-bit zero extension, movd/cvttss2si with
 0x66, 32-bit MulH, PushRoundingMode, FPR spilling for preserve-all ABI calls, BLSMSK/BLSR CF, SHLD by 16,
