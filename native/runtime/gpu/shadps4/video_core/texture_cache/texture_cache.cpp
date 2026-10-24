@@ -1792,6 +1792,7 @@ void TextureCache::RunGarbageCollector() {
     }
 
     VerifyTextures();
+    ReuploadOnTrigger();
     GarbageCollectImages();
     GarbageCollectSamplers();
 }
@@ -1807,16 +1808,23 @@ void TextureCache::VerifyTextures() {
     }
     last = now;
     static u32 logged = 0;
-    u32 checked = 0, stale = 0;
-    u64 bytes = 0;
+    u32 checked = 0, stale = 0, gpu_written = 0;
+    u64 bytes = 0, gpu_bytes = 0;
     std::scoped_lock lock{mutex};
     lru_cache.ForEachItemBelow(gc_tick, [&](ImageId image_id) {
         Image& image = slot_images[image_id];
         const VAddr address = image.info.guest_address;
         const u32 size = image.info.guest_size;
-        if (!image.verify_hash || False(image.flags & ImageFlagBits::Registered) ||
-            True(image.flags & (ImageFlagBits::Dirty | ImageFlagBits::GpuModified)) ||
+        if (False(image.flags & ImageFlagBits::Registered)) {
+            return false;
+        }
+        if (True(image.flags & ImageFlagBits::GpuModified) ||
             buffer_cache.IsRegionGpuModified(address, size)) {
+            ++gpu_written;
+            gpu_bytes += size;
+            return false;
+        }
+        if (!image.verify_hash || True(image.flags & ImageFlagBits::Dirty)) {
             return false;
         }
         ++checked;
@@ -1841,8 +1849,59 @@ void TextureCache::VerifyTextures() {
         UntrackImage(image_id);
         return false;
     });
-    std::printf("Texture verify: %u textures checked (%.0f MB), %u stale (uploaded again)\n",
-                checked, double(bytes) / (1024.0 * 1024.0), stale);
+    std::printf("Texture verify: %u textures checked (%.0f MB), %u stale (uploaded again); "
+                "%u GPU-written not checked (%.0f MB)\n",
+                checked, double(bytes) / (1024.0 * 1024.0), stale, gpu_written,
+                double(gpu_bytes) / (1024.0 * 1024.0));
+}
+
+// gow3: GOW3_REUPLOAD_TRIGGER (the app sets Documents/gow3/reupload.txt). Creating the file
+// uploads every texture again from guest memory, except GPU-written ones, whose memory is not
+// current. Corruption that this clears was in the copy to the GPU (staging or detiling); if it
+// stays, guest memory itself is wrong or the images are sampled wrongly.
+void TextureCache::ReuploadOnTrigger() {
+    static const char* trigger = std::getenv("GOW3_REUPLOAD_TRIGGER");
+    if (!trigger) {
+        return;
+    }
+    static auto last = std::chrono::steady_clock::now();
+    const auto now = std::chrono::steady_clock::now();
+    if (now - last < std::chrono::milliseconds(500)) {
+        return;
+    }
+    last = now;
+    std::error_code ec;
+    if (!std::filesystem::exists(trigger, ec)) {
+        return;
+    }
+    std::filesystem::remove(trigger, ec);
+    u32 count = 0, skipped = 0;
+    u64 bytes = 0, skipped_bytes = 0;
+    std::scoped_lock lock{mutex};
+    lru_cache.ForEachItemBelow(gc_tick, [&](ImageId image_id) {
+        Image& image = slot_images[image_id];
+        const VAddr address = image.info.guest_address;
+        const u32 size = image.info.guest_size;
+        if (False(image.flags & ImageFlagBits::Registered) || image.info.guest_samples > 1) {
+            return false;
+        }
+        if (True(image.flags & ImageFlagBits::GpuModified) ||
+            buffer_cache.IsRegionGpuModified(address, size)) {
+            ++skipped;
+            skipped_bytes += size;
+            return false;
+        }
+        ++count;
+        bytes += size;
+        InvalidateAlias(image);
+        image.flags |= ImageFlagBits::CpuDirty;
+        UntrackImage(image_id);
+        return false;
+    });
+    std::printf("Texture reupload: %u textures (%.0f MB) upload again; %u GPU-written skipped "
+                "(%.0f MB)\n",
+                count, double(bytes) / (1024.0 * 1024.0), skipped,
+                double(skipped_bytes) / (1024.0 * 1024.0));
 }
 
 void TextureCache::TouchImage(const Image& image) {

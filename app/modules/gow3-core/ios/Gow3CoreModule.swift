@@ -203,6 +203,9 @@ public class Gow3CoreModule: Module {
     // targets, formats and shaders to Documents/gow3/user/captures/frame_*.txt and removes the file
     // (vk_frame_capture.cpp). The PC port starts it with F11, which the phone has no key for.
     setenv("GOW3_CAPTURE_TRIGGER", root.appendingPathComponent("capture.txt").path, 0)
+    // Documents/gow3/reupload.txt (any content): every texture not written by the GPU is uploaded
+    // again from guest memory and the file is removed (texture_cache.cpp, ReuploadOnTrigger).
+    setenv("GOW3_REUPLOAD_TRIGGER", root.appendingPathComponent("reupload.txt").path, 0)
     excludeGameFilesFromBackup()
     let log = gameLogURL.path
     watchThermalState(log: log)

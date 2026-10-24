@@ -27,6 +27,23 @@ compressed/uncompressed alias copies there. Also ruled out on 0.1.30/0.1.31: res
 all break), the Video Arena (the 600p patch sets 2.25 GiB; DMEM is 5056 MiB), `GOW3_READBACKS=2` (no change;
 readback waits are 0 ms).
 
+**0.1.32 on the device (broken scene loaded from a save):** `Texture verify` checked ~980 textures (650 MB)
+with 0 stale, and all uploads came from guest memory (0 from the GPU buffer): no missed invalidation, the
+16 KiB tracker is not the cause. Live `toggles.txt` bisect: switching off the descriptor/view/binding/
+image-lookup memos, partial-height views and render-state memo (mask 288283178479649952) changed nothing,
+nor did the draw pipeline group (threaded recording, draw preparation, prepared resources, constant ring,
+pipelined work; mask 87930865463312). The scene uploads 0 MB per frame while broken, so the bad data sits in
+GPU images. Not checked yet: GPU-written textures (verify skips them). Side note: gow3_android runs FEX with
+all TSO options off (`android/runtime/fex-config.json`); iOS uses FEX defaults (TSO on), a CPU cost to revisit.
+Also seen: `MarkAsMaybeDirty` seeds `image.hash` over the whole image but `RefreshImage` compares a hash of
+the first 8x8 texels, and 16 KiB pages put many more textures on that path than 4 KiB.
+
+**0.1.33 (diagnostics):** creating `Documents/gow3/reupload.txt` uploads every texture not written by the
+GPU again from guest memory (`Texture reupload: N textures ... M GPU-written skipped`). Fixed by it = the
+copy to the GPU (staging copy threads or detiler) damaged them; with `toggles.txt` 256 the re-upload copies
+synchronously, which separates the two. Still broken = guest memory is wrong or the images are sampled
+wrongly. `Texture verify` lines now also count the GPU-written textures they skip.
+
 **0.1.32 (diagnostics):** the buffer cache and memory tracker work in 16 KiB tracker pages on iOS
 (`TRACKER_PAGE_BITS` 14; Android 12). A texture whose region is marked GPU-modified uploads from the buffer
 cache's copy instead of guest memory. The log now prints `Texture uploads: N from memory, M from the GPU

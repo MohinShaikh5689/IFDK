@@ -326,6 +326,7 @@ public:
     /// are hashed again; one whose memory changed without an invalidation is stale (the GPU
     /// draws an old copy): it is logged and uploaded again.
     void VerifyTextures();
+    void ReuploadOnTrigger();
 
     template <typename Func>
     void ForEachImageInRegion(VAddr cpu_addr, size_t size, Func&& func) {
