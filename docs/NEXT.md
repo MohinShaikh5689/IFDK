@@ -103,6 +103,11 @@ buttons, d-pad, L1/L2/R1/R2, L3/R3, Options and the touchpad (right side), fed t
 `gow3_touch_pad` and added to a controller's input. Launcher switch "On-screen controls" (UserDefaults);
 they hide while a controller is connected; a "Hide"/"Pad" button at the top toggles them in game. The
 two-finger double tap (hide the game view) only counts outside the controls.
+**Where we stopped (2026-10-25):** 0.1.44 (0f8d46f) committed, not yet built/tested. Phone: patches.bin =
+patches-600p.bin (also -480p/-720p/-1080p there), env.txt = "FPS test 3" with `GOW3_GPU_PROFILE=3`,
+gow3.ini fps_limit=60. Next: install 0.1.44, check the on-screen controls, then profile the heavy opening
+(~2 min) and see whether a few shader pairs or every draw carry the ~27 ms main pass. Remove
+`GOW3_GPU_PROFILE` from env.txt for normal play (the profiler splits passes and costs FPS).
 
 **FIXED (2026-10-24): texture corruption.** 0.1.40 showed every misplaced BC texture under large linear
 R32G32B32A32Uint storage images (4096x80..4096x160, the game's GPU texture moves, as SpartanPort #331 says),
