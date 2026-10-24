@@ -43,7 +43,7 @@ changed; 542 GPU-written textures (335 MB) were skipped. The re-upload goes thro
 detiler, so a detiler that is wrong for some layouts every time is not ruled out.
 
 **0.1.34 on the device: the corruption is in guest memory.** A dump of the 175 textures sampled in a broken scene
-(`tools`: detile + BC decode on the PC) shows all 144 BC textures byte-identical between the Vulkan image and
+(`native/scripts/dumpcheck.py`: detile + BC decode on the PC) shows all 144 BC textures byte-identical between the Vulkan image and
 guest memory, and many of them visibly broken in memory itself: regular stripes, bands of other data, rainbow
 noise. Upload, detiling, binding and sampling are correct; the game's own CPU code wrote bad texture data.
 
