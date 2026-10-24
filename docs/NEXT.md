@@ -2,6 +2,26 @@
 
 **Latest: docs/STATUS-2026-10-23.md** (findings and next moves for 0.1.23-0.1.27).
 
+**0.1.28 on the device (2026-10-24):** push descriptors off for pipelines (0.1.27) did not fix the textures
+and cost FPS (4-12 vs ~27), so `env.txt` has `GOW3_PUSH_DESCRIPTORS=1` again. Captures of a good and a
+broken scene in one run: the 1x1 exposure pass is the same in both, and the 64-write-fault safety net fired
+14 times before the good capture, so neither is the cause. The broken scene samples 16 2048x2048 BC
+textures (good: 4). `GOW3_GPU_PROFILE=2` crashed in Apple's driver on every start, and one cached pipeline
+failed to build in the warm-up (`Cannot convert attribute from MTLAttributeFormatFloat4 to int4`); the
+pipeline cache was deleted on the phone (copy kept on the PC).
+
+**0.1.29:** the renderer's own passes pushed descriptors even with 0.1.27: the detiler (every tiled texture
+upload), blits, GPU fault processing and HLE shaders. With robustBufferAccess, MoltenVK's stale pushed buffer
+size clips the detiler part way through a large texture, which fits "large textures broken". They now bind
+descriptor sets from a shared heap on MoltenVK 1.4.1+ (`vk_host_descriptors.h`, `GOW3_HOST_PUSH_DESCRIPTORS=1`
+turns it off), while the game's pipelines keep pushing. Also: a cached pipeline that fails to build is dropped
+by the warm-up instead of stopping the game; the GPU profiler uses one 4096-query pool per slice (Metal's 32 KiB
+counter buffer limit made MoltenVK fall back to CPU timestamps, the 0 ms of mode 1) and mode 2 is mode 1 (it
+submitted in the middle of a draw's recording); captures list each texture's tile mode, array mode, mips and
+pitch; iOS frame limit 30 by default (heat; `fps_limit=` in gow3.ini). Presenter-side passes (final
+post-process, scene resolution, TAA, FSR, camera motion) still push: they run on the presenter's scheduler
+or bind only images. Device test: the broken scene (textures), then `GOW3_GPU_PROFILE=1` for the pass split.
+
 **0.1.24 on the device (2026-10-23 evening): playable.** Played through the Poseidon fight with no crash
 (jumps, hits, orbs: the NoExec crash is fixed). 27 FPS in the frame stats (was 8-12 on 0.1.22), frames land
 on 33/50 ms (60 Hz vblank pacing), GPU ticks 63-72 % of the frame, 400-3000 draws/frame. Textures still badly

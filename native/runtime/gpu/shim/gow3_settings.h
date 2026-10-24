@@ -9,6 +9,9 @@
 
 #include <atomic>
 #include <cstdint>
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 
 namespace Gow3Settings {
 
@@ -61,7 +64,14 @@ struct Values {
     // Graphics (gow3_graphics.h). Live: applied on the next frame.
     std::atomic<int> display_mode{0};
     std::atomic<bool> vsync{true};
+#if defined(__APPLE__) && TARGET_OS_IOS
+    // gow3 (iOS): 30 by default. The GPU is the limit on the phone (frames take 33-50 ms), and
+    // without a cap it runs flat out, so the phone reaches thermal state "serious" within a
+    // minute; at 30 the GPU idles between frames. gow3.ini fps_limit= or the menu changes it.
+    std::atomic<int> fps_limit{30};
+#else
     std::atomic<int> fps_limit{0};
+#endif
     std::atomic<bool> async_shaders{true};
     std::atomic<bool> fsr1{false};
     std::atomic<bool> rcas{true};

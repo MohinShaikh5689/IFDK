@@ -815,9 +815,15 @@ bool PipelineCache::LoadGraphicsPipeline(Serialization::Archive& ar) {
             return true;
         });
     } else {
-        it.value() = std::make_unique<GraphicsPipeline>(
-            instance, scheduler, desc_heap, profile, sel.graphics_key, *pipeline_cache, sel.infos,
-            sel.runtime_infos, sel.fetch_shader, sel.modules, sdata, true);
+        try {
+            it.value() = std::make_unique<GraphicsPipeline>(
+                instance, scheduler, desc_heap, profile, sel.graphics_key, *pipeline_cache,
+                sel.infos, sel.runtime_infos, sel.fetch_shader, sel.modules, sdata, true);
+        } catch (const std::exception& e) {
+            // gow3: dropped; the game builds this pipeline from live state if it needs it.
+            LOG_ERROR(Render_Vulkan, "gow3: warm-up pipeline failed: {}", e.what());
+            graphics_pipelines.erase(sel.graphics_key);
+        }
     }
 
     sel.infos.fill(nullptr);

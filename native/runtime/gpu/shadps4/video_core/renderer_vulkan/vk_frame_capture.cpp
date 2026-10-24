@@ -19,6 +19,9 @@ struct Target {
     VAddr address{};
     vk::Format format{};
     u32 width{}, height{};
+    // gow3: guest layout, for textures that come out wrong (tile_mode: AmdGpu::TileMode,
+    // 8 = linear; array_mode: AmdGpu::ArrayMode, macro tiled from 4).
+    u32 tile_mode{}, array_mode{}, levels{}, pitch{};
     bool operator==(const Target&) const = default;
 };
 
@@ -58,14 +61,19 @@ std::array<std::atomic<VAddr>, 16> display_list{};
 std::atomic<u32> display_count{0};
 
 Target ToTarget(const VideoCore::ImageInfo& info) {
-    return {info.guest_address, info.pixel_format, info.size.width, info.size.height};
+    return {info.guest_address,         info.pixel_format,
+            info.size.width,            info.size.height,
+            u32(info.tile_mode),        u32(info.array_mode),
+            info.resources.levels,      info.pitch};
 }
 
 std::string Describe(const Target& t) {
     if (!t.address) {
         return "-";
     }
-    return std::format("{:#x} {} {}x{}", t.address, vk::to_string(t.format), t.width, t.height);
+    return std::format("{:#x} {} {}x{} tile {} array {} mips {} pitch {}", t.address,
+                       vk::to_string(t.format), t.width, t.height, t.tile_mode, t.array_mode,
+                       t.levels, t.pitch);
 }
 
 void AddSampled(Entry& entry) {

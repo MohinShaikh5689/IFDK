@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "video_core/renderer_vulkan/vk_host_descriptors.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -61,7 +62,7 @@ TileManager::TileManager(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
     }};
 
     const vk::DescriptorSetLayoutCreateInfo desc_layout_ci = {
-        .flags = vk::DescriptorSetLayoutCreateFlagBits::ePushDescriptorKHR,
+        .flags = Vulkan::HostDescriptors::LayoutFlags(), // gow3: vk_host_descriptors.h
         .bindingCount = static_cast<u32>(bindings.size()),
         .pBindings = bindings.data(),
     };
@@ -196,8 +197,8 @@ vk::Pipeline TileManager::GetTilingPipeline(const ImageInfo& info, bool is_tiler
 void TileManager::RecordTilingDispatch(vk::Pipeline pipeline, const vk::DescriptorBufferInfo& tiled,
                                        const vk::DescriptorBufferInfo& linear,
                                        const vk::DescriptorBufferInfo& params, u32 dim_x) {
-    scheduler.Record([pipeline, layout = *pl_layout, tiled, linear, params,
-                      dim_x](vk::CommandBuffer cmdbuf) {
+    scheduler.Record([pipeline, layout = *pl_layout, set_layout = *desc_layout, tiled, linear,
+                      params, dim_x](vk::CommandBuffer cmdbuf) {
         if (Vulkan::Scheduler::FullBarriers()) { // gow3: GOW3_FULL_BARRIERS=1
             Vulkan::Scheduler::RecordFullBarrier(cmdbuf);
         }
@@ -222,7 +223,8 @@ void TileManager::RecordTilingDispatch(vk::Pipeline pipeline, const vk::Descript
                 .pBufferInfo = &params,
             },
         }};
-        cmdbuf.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, layout, 0, set_writes);
+        Vulkan::HostDescriptors::Push(cmdbuf, vk::PipelineBindPoint::eCompute, layout, set_layout,
+                                      set_writes);
         cmdbuf.dispatch(dim_x, 1, 1);
         if (Vulkan::Scheduler::FullBarriers()) {
             Vulkan::Scheduler::RecordFullBarrier(cmdbuf);

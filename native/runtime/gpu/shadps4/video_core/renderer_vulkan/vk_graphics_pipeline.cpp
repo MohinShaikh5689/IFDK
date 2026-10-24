@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <stdexcept>
 #include <utility>
 #include <boost/container/small_vector.hpp>
 
@@ -436,6 +437,13 @@ GraphicsPipeline::GraphicsPipeline(
     auto [pipeline_result, pipe] =
         CreateCachedGraphicsPipeline(device, pipeline_cache, pipeline_info, key,
                                      instance.GetPipelineBinaryGlobalKey(), binary_directory);
+    // gow3: a cached pipeline that no longer builds (Metal: "Cannot convert attribute from
+    // MTLAttributeFormatFloat4 to int4", a shader and vertex format from different runs) is
+    // dropped by the warm-up, which catches this; the game builds its own from live state.
+    if (preloading && pipeline_result != vk::Result::eSuccess) {
+        throw std::runtime_error("cached graphics pipeline does not build: " +
+                                 vk::to_string(pipeline_result));
+    }
     ASSERT_MSG(pipeline_result == vk::Result::eSuccess, "Failed to create graphics pipeline: {}",
                vk::to_string(pipeline_result));
     pipeline = std::move(pipe);

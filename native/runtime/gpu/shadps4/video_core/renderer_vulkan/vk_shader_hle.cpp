@@ -6,6 +6,7 @@
 #include "video_core/renderer_vulkan/vk_runtime.h"
 #include "video_core/renderer_vulkan/vk_shader_hle.h"
 #include "video_core/renderer_vulkan/vk_shader_util.h"
+#include "video_core/renderer_vulkan/vk_host_descriptors.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/host_shaders/buffer_multi_copy_comp.h"
@@ -59,7 +60,7 @@ static bool MultiCopy(Rasterizer& rasterizer, const VideoCore::Buffer* src,
                            .stageFlags = vk::ShaderStageFlagBits::eCompute};
         }
         p.set_layout = Check(device.createDescriptorSetLayoutUnique({
-            .flags = vk::DescriptorSetLayoutCreateFlagBits::ePushDescriptorKHR,
+            .flags = HostDescriptors::LayoutFlags(), // gow3: vk_host_descriptors.h
             .bindingCount = static_cast<u32>(bindings.size()),
             .pBindings = bindings.data(),
         }));
@@ -126,7 +127,8 @@ static bool MultiCopy(Rasterizer& rasterizer, const VideoCore::Buffer* src,
                          .pBufferInfo = &infos[i]};
         }
         cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, *pipe.pipeline);
-        cmdbuf.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, *pipe.layout, 0, writes);
+        HostDescriptors::Push(cmdbuf, vk::PipelineBindPoint::eCompute, *pipe.layout,
+                              *pipe.set_layout, writes);
         cmdbuf.pushConstants(*pipe.layout, vk::ShaderStageFlagBits::eCompute, 0, sizeof(count),
                              &count);
         cmdbuf.dispatch(count, 1, 1);

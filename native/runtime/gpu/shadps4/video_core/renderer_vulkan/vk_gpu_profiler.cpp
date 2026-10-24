@@ -15,20 +15,28 @@ void GpuProfiler::Init(const Instance& instance, Scheduler& scheduler) {
         return;
     }
     instance_ptr = new GpuProfiler(instance, scheduler);
-    instance_ptr->submit_each = env[0] == '2';
-    if (instance_ptr->submit_each) {
-        std::printf("GPU profile: mode 2, one submission per timestamp\n");
+    // gow3 (iOS): mode 2 submitted inside a draw's recording (MarkPass runs after the draw's
+    // descriptors, push constants and dynamic state are recorded), so the draw went out in a
+    // fresh command buffer without them and Apple's driver crashed (AGXMetalG18P, address 0x20).
+    // With real timestamps (one pool per slice, below Metal's 32 KiB counter buffer limit)
+    // mode 1 measures there; mode 2 is mode 1.
+    if (env[0] == '2') {
+        std::printf("GPU profile: mode 2 is mode 1 now (it crashed the Metal driver)\n");
     }
 }
 
 GpuProfiler::GpuProfiler(const Instance& instance, Scheduler& scheduler_)
     : device{instance.GetDevice()}, scheduler{scheduler_} {
+    // gow3: one pool per slice. MoltenVK backs a timestamp pool with an MTLCounterSampleBuffer of
+    // at most 32 KiB (4096 queries); a larger pool fell back to CPU timestamps, which read 0 ms.
     const vk::QueryPoolCreateInfo info = {
         .queryType = vk::QueryType::eTimestamp,
-        .queryCount = NumSlices * SliceQueries,
+        .queryCount = SliceQueries,
     };
-    pool = Check<"create timestamp query pool">(device.createQueryPoolUnique(info));
-    device.resetQueryPool(*pool, 0, NumSlices * SliceQueries);
+    for (auto& pool : pools) {
+        pool = Check<"create timestamp query pool">(device.createQueryPoolUnique(info));
+        device.resetQueryPool(*pool, 0, SliceQueries);
+    }
     period_ns = instance.GetPhysicalDevice().getProperties().limits.timestampPeriod;
     for (auto& k : keys) {
         k.reserve(SliceQueries);
@@ -46,10 +54,10 @@ void GpuProfiler::WriteTimestamp(u64 key, bool submit) {
     // Outside render passes: radv_CmdWriteTimestamp2 crashed inside some. Marks sit where a
     // pass, dispatch or submission ends anyway.
     scheduler.EndRendering();
-    const u32 query = slice * SliceQueries + used[slice]++;
+    const u32 query = used[slice]++;
     keys[slice].push_back(key);
     current = key;
-    scheduler.Record([pool = *pool, query](vk::CommandBuffer cmdbuf) {
+    scheduler.Record([pool = *pools[slice], query](vk::CommandBuffer cmdbuf) {
         cmdbuf.writeTimestamp2(vk::PipelineStageFlagBits2::eAllCommands, pool, query);
     });
     if (submit_each && submit) {
@@ -72,8 +80,8 @@ void GpuProfiler::BeginFrame() {
     // Close the frame: one more timestamp without a label.
     if (!paused && used[slice] > 0 && used[slice] < SliceQueries) {
         scheduler.EndRendering();
-        const u32 query = slice * SliceQueries + used[slice]++;
-        scheduler.Record([pool = *pool, query](vk::CommandBuffer cmdbuf) {
+        const u32 query = used[slice]++;
+        scheduler.Record([pool = *pools[slice], query](vk::CommandBuffer cmdbuf) {
             cmdbuf.writeTimestamp2(vk::PipelineStageFlagBits2::eAllCommands, pool, query);
         });
         pending[slice] = true;
@@ -93,7 +101,7 @@ void GpuProfiler::BeginFrame() {
         Collect(slice);
     }
     if (used[slice]) {
-        device.resetQueryPool(*pool, slice * SliceQueries, used[slice]);
+        device.resetQueryPool(*pools[slice], 0, used[slice]);
     }
     used[slice] = 0;
     keys[slice].clear();
@@ -106,7 +114,7 @@ void GpuProfiler::Collect(u32 which) {
     std::vector<u64> stamps(count);
     // BeginFrame only collects a slice the GPU has finished, so the results are there.
     const auto result = device.getQueryPoolResults(
-        *pool, which * SliceQueries, count, count * sizeof(u64), stamps.data(), sizeof(u64),
+        *pools[which], 0, count, count * sizeof(u64), stamps.data(), sizeof(u64),
         vk::QueryResultFlagBits::e64);
     if (result != vk::Result::eSuccess) {
         return;

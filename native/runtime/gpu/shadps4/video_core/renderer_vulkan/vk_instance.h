@@ -26,6 +26,10 @@ namespace Vulkan {
 /// (KytyPS5 #1083), which corrupts rendering. GOW3_PUSH_DESCRIPTORS=0/1 overrides. Read by the
 /// shader binary cache version (vk_pipeline_serialization.cpp).
 inline std::atomic<bool> push_descriptors_off{false};
+/// gow3 (iOS): the same for the renderer's own passes (vk_host_descriptors.h), on its own so the
+/// game's pipelines can keep pushing (descriptor sets there cost ~half the FPS on 0.1.27).
+/// GOW3_HOST_PUSH_DESCRIPTORS=0/1 overrides.
+inline std::atomic<bool> host_push_descriptors_off{false};
 
 class Instance {
 public:

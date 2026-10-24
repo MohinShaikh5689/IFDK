@@ -858,6 +858,15 @@ void Instance::CollectDeviceParameters() {
     push_descriptors_off.store(push_off, std::memory_order_relaxed);
     std::printf("GPU: push descriptors %s\n",
                 push_off ? "off, descriptor sets (GOW3_PUSH_DESCRIPTORS=1 turns them on)" : "on");
+    const char* host_push_env = std::getenv("GOW3_HOST_PUSH_DESCRIPTORS");
+    const bool host_push_off =
+        host_push_env && *host_push_env
+            ? *host_push_env == '0'
+            : driver_id == vk::DriverId::eMoltenvk && properties.driverVersion >= 10401;
+    host_push_descriptors_off.store(host_push_off, std::memory_order_relaxed);
+    std::printf("GPU: renderer pass push descriptors %s\n",
+                host_push_off ? "off, descriptor sets (GOW3_HOST_PUSH_DESCRIPTORS=1 turns them on)"
+                              : "on");
     std::printf("GPU: guest multisampling %s\n",
                 no_msaa ? "off (single-sampled images; GOW3_NO_MSAA=0 keeps it)" : "on");
 

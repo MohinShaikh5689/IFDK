@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2025 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "video_core/renderer_vulkan/vk_host_descriptors.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_lighting_test.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -116,8 +117,9 @@ void BlitHelper::ReinterpretColorAsMsDepth(u32 width, u32 height, u32 num_sample
         .descriptorType = vk::DescriptorType::eSampledImage,
         .pImageInfo = &image_info,
     };
-    cmdbuf.pushDescriptorSetKHR(vk::PipelineBindPoint::eGraphics, *single_texture_pl_layout, 0U,
-                                texture_write);
+    Vulkan::HostDescriptors::Push(cmdbuf, vk::PipelineBindPoint::eGraphics,
+                                  *single_texture_pl_layout, *single_texture_descriptor_set_layout,
+                                  std::span{&texture_write, 1});
 
     const MsPipelineKey key{num_samples, dst_pixel_format, false};
     auto it = std::ranges::find(color_to_ms_depth_pl, key, &MsPipeline::first);
@@ -217,8 +219,9 @@ void BlitHelper::CopyBetweenMsImages(u32 width, u32 height, u32 num_samples,
         .descriptorType = vk::DescriptorType::eSampledImage,
         .pImageInfo = &image_info,
     };
-    cmdbuf.pushDescriptorSetKHR(vk::PipelineBindPoint::eGraphics, *single_texture_pl_layout, 0U,
-                                texture_write);
+    Vulkan::HostDescriptors::Push(cmdbuf, vk::PipelineBindPoint::eGraphics,
+                                  *single_texture_pl_layout, *single_texture_descriptor_set_layout,
+                                  std::span{&texture_write, 1});
 
     const MsPipelineKey key{num_samples, pixel_format, src_msaa};
     auto it = std::ranges::find(ms_image_copy_pl, key, &MsPipeline::first);
@@ -269,7 +272,7 @@ void BlitHelper::CreatePipelineLayouts() {
         .stageFlags = vk::ShaderStageFlagBits::eFragment,
     };
     const vk::DescriptorSetLayoutCreateInfo desc_layout_ci = {
-        .flags = vk::DescriptorSetLayoutCreateFlagBits::ePushDescriptorKHR,
+        .flags = Vulkan::HostDescriptors::LayoutFlags(), // gow3: vk_host_descriptors.h
         .bindingCount = 1U,
         .pBindings = &texture_binding,
     };
