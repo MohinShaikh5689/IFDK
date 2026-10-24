@@ -195,7 +195,7 @@ final class Gow3TouchControlsView: UIView {
 
     let stick = 130 * s
     leftStick.frame = CGRect(x: l + 24 * s, y: h - b - stick - 16 * s, width: stick, height: stick)
-    l3.frame = CGRect(x: leftStick.maxX - 18 * s, y: leftStick.minY - 30 * s, width: 40 * s, height: 40 * s)
+    l3.frame = CGRect(x: leftStick.frame.maxX - 18 * s, y: leftStick.frame.minY - 30 * s, width: 40 * s, height: 40 * s)
 
     let face = 58 * s, gap = 62 * s
     let c = CGPoint(x: w - r - 24 * s - gap - face / 2, y: h - b - 16 * s - gap - face / 2)
@@ -205,10 +205,10 @@ final class Gow3TouchControlsView: UIView {
 
     let small = 100 * s
     rightStick.frame = CGRect(x: square.frame.minX - 40 * s - small, y: h - b - small - 8 * s, width: small, height: small)
-    r3.frame = CGRect(x: rightStick.midX - 20 * s, y: rightStick.minY - 46 * s, width: 40 * s, height: 40 * s)
+    r3.frame = CGRect(x: rightStick.frame.midX - 20 * s, y: rightStick.frame.minY - 46 * s, width: 40 * s, height: 40 * s)
 
     let arrow = 44 * s, step = 46 * s
-    let d = CGPoint(x: leftStick.maxX + 40 * s + step, y: h - b - 16 * s - step - arrow / 2)
+    let d = CGPoint(x: leftStick.frame.maxX + 40 * s + step, y: h - b - 16 * s - step - arrow / 2)
     for (button, dx, dy) in [(up, 0, -1), (down, 0, 1), (left, -1, 0), (right, 1, 0)] as [(PadButton, CGFloat, CGFloat)] {
       button.frame = CGRect(x: d.x + dx * step - arrow / 2, y: d.y + dy * step - arrow / 2, width: arrow, height: arrow)
     }
