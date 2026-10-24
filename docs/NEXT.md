@@ -116,6 +116,11 @@ controls did nothing in the save/load list (and the settings menu): the overlay 
 not the pad state, so window_ios.mm replays the on-screen buttons to it as events. Also: layout editing
 (long press Hide/Pad: drag, -/+, Reset, Done; UserDefaults gow3.touchLayout) and an FPS cap button in the
 launcher (gow3.ini fps_limit: 60, 30, off).
+Also in 0.1.45: the launcher is redesigned (Play button that walks through files -> JIT -> play, status
+tiles, Settings with the FPS cap and the on-screen controls switch, collapsible JIT setup and game files,
+all developer tools under Advanced > Developer); display name "Olympus" (CFBundleDisplayName only: the
+project, bundle id and pairing host name stay gow3/gow3-ios); new icon (native/scripts/icon/make_icon.py);
+a Menu button on the touch controls opens the settings/cheats menu (bit 0x20000000, replayed as L2+R3).
 
 **FIXED (2026-10-24): texture corruption.** 0.1.40 showed every misplaced BC texture under large linear
 R32G32B32A32Uint storage images (4096x80..4096x160, the game's GPU texture moves, as SpartanPort #331 says),

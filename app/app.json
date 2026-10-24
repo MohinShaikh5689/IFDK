@@ -21,10 +21,11 @@
         "NSBonjourServices": [
           "_remotepairing-pairable-host._tcp"
         ],
-        "NSLocalNetworkUsageDescription": "gow3-ios uses the local network to pair with this iPhone for JIT, without a computer.",
+        "NSLocalNetworkUsageDescription": "Olympus uses the local network to pair with this iPhone for JIT, without a computer.",
         "BGTaskSchedulerPermittedIdentifiers": [
           "$(PRODUCT_BUNDLE_IDENTIFIER).pairing.*"
-        ]
+        ],
+        "CFBundleDisplayName": "Olympus"
       },
       "entitlements": {
         "get-task-allow": true,

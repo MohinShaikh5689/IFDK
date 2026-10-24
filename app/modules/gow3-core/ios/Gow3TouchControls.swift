@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // On-screen controls over the game view: two sticks, the face buttons, the d-pad, L1/L2/R1/R2,
-// L3/R3, Options and the touchpad. Their state goes to the pad code (runtime_pad.c, gow3_touch_pad)
+// L3/R3, Options, the touchpad and Menu (the settings and cheats menu). Their state goes to the pad code (runtime_pad.c, gow3_touch_pad)
 // and adds to a connected controller's. The launcher's switch decides whether they show; they hide
 // while a controller is connected, and the small button at the top shows or hides them in play.
 // A long press on that button edits the layout: drag a control, -/+ resize it, Reset, Done.
@@ -18,6 +18,8 @@ private enum Pad {
   static let triangle: UInt32 = 0x1000, circle: UInt32 = 0x2000, cross: UInt32 = 0x4000, square: UInt32 = 0x8000
   /// A click on the right side of the touchpad (the pad code plays it as a touch and a click).
   static let touchpad: UInt32 = 0x8000_0000
+  /// Not a PS4 button: opens or closes the settings and cheats menu (window_ios.mm).
+  static let menu: UInt32 = 0x2000_0000
   static let centered: UInt32 = 0x8080_8080
 }
 
@@ -143,14 +145,15 @@ final class Gow3TouchControlsView: UIView {
   private let l3 = PadButton("L3", Pad.l3, size: 13), r3 = PadButton("R3", Pad.r3, size: 13)
   private let options = PadButton("Options", Pad.options, size: 13)
   private let touchpad = PadButton("Touchpad", Pad.touchpad, size: 13)
-  private lazy var buttons = [cross, circle, square, triangle, up, down, left, right, l1, l2, r1, r2, l3, r3, options, touchpad]
+  private let menu = PadButton("Menu", Pad.menu, color: UIColor(red: 0.89, green: 0.69, blue: 0.29, alpha: 1), size: 13)
+  private lazy var buttons = [cross, circle, square, triangle, up, down, left, right, l1, l2, r1, r2, l3, r3, options, touchpad, menu]
   private let toggle = UIButton(type: .system)
   private let reset = UIButton(type: .system), smaller = UIButton(type: .system), larger = UIButton(type: .system)
   /// The controls that move and resize together, by the name their layout is saved under.
   private lazy var groups: [(String, [UIView])] = [
     ("leftStick", [leftStick]), ("rightStick", [rightStick]), ("face", [cross, circle, square, triangle]),
     ("dpad", [up, down, left, right]), ("l1", [l1]), ("l2", [l2]), ("r1", [r1]), ("r2", [r2]),
-    ("l3", [l3]), ("r3", [r3]), ("options", [options]), ("touchpad", [touchpad]),
+    ("l3", [l3]), ("r3", [r3]), ("options", [options]), ("touchpad", [touchpad]), ("menu", [menu]),
   ]
   private var layout = Gow3TouchControls.layout
   private var editing = false
@@ -293,6 +296,7 @@ final class Gow3TouchControlsView: UIView {
     let pill = CGSize(width: 84 * s, height: 32 * s)
     touchpad.frame = CGRect(origin: CGPoint(x: w / 2 - 40 * s - pill.width, y: t), size: pill)
     options.frame = CGRect(origin: CGPoint(x: w / 2 + 40 * s, y: t), size: pill)
+    menu.frame = CGRect(origin: CGPoint(x: options.frame.maxX + 12 * s, y: t), size: CGSize(width: 64 * s, height: 32 * s))
     toggle.frame = CGRect(x: w / 2 - 28 * s, y: t, width: 56 * s, height: 32 * s)
     let tool = CGSize(width: 56 * s, height: 32 * s)
     smaller.frame = CGRect(origin: CGPoint(x: w / 2 - 28 * s - 8 - tool.width, y: t + 40 * s), size: tool)

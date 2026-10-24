@@ -47,6 +47,26 @@ void ReplayTouchButtons() {
         return;
     }
     const u64 timestamp = SDL_GetTicksNS();
+    // The Menu button: the menu's own shortcut, L2 held while R3 goes down.
+    if ((changed & 0x20000000u) && (now & 0x20000000u)) {
+        SDL_Event event{};
+        event.type = SDL_EVENT_GAMEPAD_AXIS_MOTION;
+        event.gaxis.timestamp = timestamp;
+        event.gaxis.axis = u8(SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
+        event.gaxis.value = 32767;
+        Gow3Overlay::HandleEvent(event);
+        SDL_Event press{};
+        press.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+        press.gbutton.timestamp = timestamp;
+        press.gbutton.button = u8(SDL_GAMEPAD_BUTTON_RIGHT_STICK);
+        press.gbutton.down = true;
+        Gow3Overlay::HandleEvent(press);
+        press.type = SDL_EVENT_GAMEPAD_BUTTON_UP;
+        press.gbutton.down = false;
+        Gow3Overlay::HandleEvent(press);
+        event.gaxis.value = 0;
+        Gow3Overlay::HandleEvent(event);
+    }
     for (const auto& [bit, button] : buttons) {
         if (!(changed & bit)) continue;
         SDL_Event event{};

@@ -254,7 +254,8 @@ static void sample_host(PadData *d) {
     }
     /* The on-screen controls add to the pad like the keyboard: a stick follows the touch while it
      * is off center. */
-    const uint32_t touched=__atomic_load_n(&touch_buttons,__ATOMIC_RELAXED);
+    /* 0x20000000 is the on-screen Menu button: for the settings menu only, never the game. */
+    const uint32_t touched=__atomic_load_n(&touch_buttons,__ATOMIC_RELAXED) & ~0x20000000u;
     const uint32_t sticks=__atomic_load_n(&touch_sticks,__ATOMIC_RELAXED);
     d->buttons|=touched;
     if (touched & BTN_L2) d->l2=255;

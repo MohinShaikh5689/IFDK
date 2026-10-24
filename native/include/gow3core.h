@@ -35,7 +35,7 @@ void gow3_gpu_set_surface(void *metal_layer, uint32_t width, uint32_t height, ui
  * extensions and features shadPS4's video core uses the device lacks. */
 size_t gow3_gpu_screen_test(void *metal_layer, uint32_t width, uint32_t height, unsigned seconds, char *out, size_t capacity);
 /* On-screen controls: the pressed PS4 buttons (libScePad bits; 0x40000000/0x80000000 click the left/right
- * touchpad side) and the sticks (left x, left y, right x, right y in bytes 0-3, 128 centered). They add
+ * touchpad side, 0x20000000 opens or closes the settings menu) and the sticks (left x, left y, right x, right y in bytes 0-3, 128 centered). They add
  * to a connected controller's input. Call with (0, 0x80808080) to release everything. */
 void gow3_touch_pad(uint32_t buttons, uint32_t sticks);
 
