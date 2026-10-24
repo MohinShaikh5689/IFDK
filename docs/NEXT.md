@@ -22,6 +22,14 @@ in fights 25-27 ms of GPU time per frame went to 4-5 passes with no color or dep
 the heaviest scenes (2000+ draws) run ~16 FPS. Textures still break over time. `GOW3_SUBMIT_WAIT=1` did not
 help (broke fast), so reuse before the GPU finished is ruled out.
 
+**0.1.31 (main change):** alias copies between uncompressed storage images and BC textures go through a
+buffer on iOS (vk_runtime.cpp `CopyAliasImage`). God of War III streams textures with GPU writes to storage
+images over the texture pool (texture_cache.cpp `ApplyBackingWrites`), and Metal has no copy between
+compressed and uncompressed textures, so MoltenVK emulates that vkCmdCopyImage; image -> buffer -> image is
+the path every texture upload already takes. Each new format pair prints `Alias copy: ... through a buffer`.
+`GOW3_ALIAS_COPY_DIRECT=1` keeps vkCmdCopyImage (A/B). A 0.1.30 run with `GOW3_AUDIO_TRACE=1` logged no failed
+read when the textures broke, so the read change below is a safety fix, not the cause.
+
 **0.1.31:** file reads go through a host buffer on iOS (runtime_file.c `bounce_read`). The runtime touched each
 destination page so the fault handler unprotected it, then read() straight into guest memory; the GPU thread
 can protect a page again before the kernel's copy reaches it (level files are ~200 MB), and XNU's read() then

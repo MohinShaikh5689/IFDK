@@ -270,6 +270,94 @@ void Runtime::CopyAliasImage(VideoCore::Image* src, VideoCore::Image* dst,
         .dstSubresource{.aspectMask = vk::ImageAspectFlagBits::eColor, .layerCount = layers},
         .extent = extent,
     };
+    // gow3 (iOS): God of War III streams textures through uncompressed storage images over BC
+    // textures (texture_cache.cpp, ApplyBackingWrites), and alias copies move texels between
+    // them. Metal has no copy between compressed and uncompressed textures, so MoltenVK emulates
+    // vkCmdCopyImage there; through a buffer it is the path every texture upload takes.
+    // GOW3_ALIAS_COPY_DIRECT=1 keeps vkCmdCopyImage.
+    const auto src_block = vk::blockExtent(src->info.pixel_format);
+    const auto dst_block = vk::blockExtent(dst->info.pixel_format);
+    const bool mixed = src_block[0] != dst_block[0] || src_block[1] != dst_block[1];
+#ifdef __APPLE__
+    static const bool direct = [] {
+        const char* env = std::getenv("GOW3_ALIAS_COPY_DIRECT");
+        return env && *env == '1';
+    }();
+    const bool via_buffer = mixed && !direct;
+#else
+    const bool via_buffer = false;
+#endif
+    if (mixed) {
+        static std::mutex logged_mutex;
+        static std::vector<std::pair<vk::Format, vk::Format>> logged;
+        std::scoped_lock lk{logged_mutex};
+        const std::pair formats{src->info.pixel_format, dst->info.pixel_format};
+        if (logged.size() < 64 && std::ranges::find(logged, formats) == logged.end()) {
+            logged.push_back(formats);
+            std::printf("Alias copy: %s %ux%u -> %s %ux%u, extent %ux%u, %s\n",
+                        vk::to_string(formats.first).c_str(), src->info.size.width,
+                        src->info.size.height, vk::to_string(formats.second).c_str(),
+                        dst->info.size.width, dst->info.size.height, extent.width, extent.height,
+                        via_buffer ? "through a buffer" : "vkCmdCopyImage");
+        }
+    }
+    if (via_buffer) {
+        // Rows are given in texels of each image; one source texel is one destination block (or
+        // the reverse), so the bytes in the buffer are the same for both copies.
+        const u32 blocks_x = (extent.width + src_block[0] - 1) / src_block[0];
+        const u32 blocks_y = (extent.height + src_block[1] - 1) / src_block[1];
+        const vk::BufferImageCopy download{
+            .bufferOffset = 0,
+            .bufferRowLength = blocks_x * src_block[0],
+            .bufferImageHeight = blocks_y * src_block[1],
+            .imageSubresource = region.srcSubresource,
+            .imageExtent = extent,
+        };
+        const u32 size = BufferImageCopySize(download, src->info.pixel_format);
+        const auto staging = staging_pool.Request(size, VideoCore::MemoryType::DeviceLocal);
+        vk::BufferImageCopy download_copy = download;
+        download_copy.bufferOffset = staging.offset;
+        const vk::BufferImageCopy upload_copy{
+            .bufferOffset = staging.offset,
+            .bufferRowLength = blocks_x * dst_block[0],
+            .bufferImageHeight = blocks_y * dst_block[1],
+            .imageSubresource = region.dstSubresource,
+            .imageExtent = {std::min(blocks_x * dst_block[0], dst->info.size.width),
+                            std::min(blocks_y * dst_block[1], dst->info.size.height),
+                            extent.depth},
+        };
+        bool needs_flush =
+            Transit(src, vk::ImageLayout::eTransferSrcOptimal, vk::PipelineStageFlagBits2::eCopy,
+                    vk::AccessFlagBits2::eTransferRead);
+        needs_flush |= Transit(dst, vk::ImageLayout::eTransferDstOptimal,
+                               vk::PipelineStageFlagBits2::eCopy,
+                               vk::AccessFlagBits2::eTransferWrite);
+        needs_flush |= IsBufferAccessed(staging.buffer, staging.offset, size);
+        if (needs_flush) {
+            FlushBarriers();
+        }
+        scheduler.Record([src_image = src->GetImage(), dst_image = dst->GetImage(),
+                          handle = staging.buffer->Handle(), download_copy,
+                          upload_copy](vk::CommandBuffer cmdbuf) {
+            cmdbuf.copyImageToBuffer(src_image, vk::ImageLayout::eTransferSrcOptimal, handle,
+                                     download_copy);
+            const vk::MemoryBarrier2 post_copy_barrier = {
+                .srcStageMask = vk::PipelineStageFlagBits2::eCopy,
+                .srcAccessMask = vk::AccessFlagBits2::eTransferWrite,
+                .dstStageMask = vk::PipelineStageFlagBits2::eCopy,
+                .dstAccessMask = vk::AccessFlagBits2::eTransferRead,
+            };
+            cmdbuf.pipelineBarrier2(vk::DependencyInfo{
+                .dependencyFlags = vk::DependencyFlagBits::eByRegion,
+                .memoryBarrierCount = 1u,
+                .pMemoryBarriers = &post_copy_barrier,
+            });
+            cmdbuf.copyBufferToImage(handle, dst_image, vk::ImageLayout::eTransferDstOptimal,
+                                     upload_copy);
+        });
+        return;
+    }
+
     bool needs_flush =
         Transit(src, vk::ImageLayout::eTransferSrcOptimal, vk::PipelineStageFlagBits2::eCopy,
                 vk::AccessFlagBits2::eTransferRead);
