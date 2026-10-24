@@ -71,6 +71,16 @@ Fix") comes from a too small Video Arena; the phone already runs it at 2.25 GiB 
 0x90000000; direct mapping 2.39 GiB). Raised to 3.25 GiB (0xd0000000; mapping 3.39 GiB confirmed in the log):
 textures broken the same. Not arena pressure.
 
+**0.1.39 on the device (Hades save; dump_0 with 186 textures, tiles.txt, writes.bin):** 10,826 tilings, 0
+wrong, 0 sources differing from the file, 0 reads in flight, 0 same file bytes twice. `native/scripts/
+tilecheck.py` rebuilds each tiled range from the game file and compares with the dump: 76 BC textures are
+exactly the tiled file data. 73 BC textures in use are NOT where their data was ever written: e.g. tex 46,
+BC1 2048x2048 at 0x73d58f7000, lies +0x230c00 inside a 4 MiB 128-bpp surface tiled at 0x73d56c6400 (#7877,
+HDS175.WAD @0xb3d4bc; memory there is 100% that surface), and over the whole session the only writes into
+its range are those tilings (no GPU copy, read, memcpy). No tiling ever targeted any of these addresses, and
+no fixed offset links them to same-shape tilings. So the texture data is right; the T# (texture descriptor)
+base addresses the GPU uses point where that texture never was. Next: find who writes those T#s.
+
 **Other ports and game files (2026-10-24, no build):** SpartanPort 2.7.0 (PC) still has open, milder
 texture corruption after playing a while (#1015 striped floors/walls, #917, #1014); #331 (backing-write
 invalidation) is already in our code; #899 was a bad dump. The phone's game files match the user's Windows
