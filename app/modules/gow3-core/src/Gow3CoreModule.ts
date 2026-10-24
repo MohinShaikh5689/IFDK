@@ -29,6 +29,9 @@ declare class Gow3CoreModule extends NativeModule<{}> {
   startGameCpuOnly(): Promise<string>;
   /** Runs the game with graphics in a fullscreen Metal view (two-finger double tap hides it). */
   startGame(): Promise<string>;
+  /** On-screen controls at game start (they hide while a controller is connected; a button in game toggles them). */
+  touchControlsEnabled(): boolean;
+  setTouchControlsEnabled(enabled: boolean): void;
   /** The last 24 KiB of the loader log. */
   readGameLog(): string;
   clearGameLog(): void;

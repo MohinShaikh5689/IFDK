@@ -11,6 +11,8 @@ type BuiltIn = Awaited<ReturnType<typeof Gow3Core.builtInJitStatus>>;
 
 // controllers() is new in the native build after 4ed13b6; older installed IPAs lack it.
 const listControllers = () => (typeof Gow3Core.controllers === 'function' ? Gow3Core.controllers() : []);
+// The on-screen controls switch is new in 0.1.44; older installed IPAs lack it.
+const hasTouchControls = typeof Gow3Core.touchControlsEnabled === 'function';
 
 function pretty(json: string): string {
   try {
@@ -40,6 +42,7 @@ export default function App() {
   const [files, setFiles] = useState(() => Gow3Core.gameFiles());
   const [gameLog, setGameLog] = useState(() => Gow3Core.readGameLog());
   const [gpuReport, setGpuReport] = useState('');
+  const [touchControls, setTouchControls] = useState(() => (hasTouchControls ? Gow3Core.touchControlsEnabled() : false));
 
   const refresh = useCallback(() => {
     setReport(pretty(Gow3Core.deviceReport()));
@@ -199,6 +202,15 @@ export default function App() {
             onPress={() => run(() => Gow3Core.startGame())}
             disabled={busy || files.started || !files.boot || !files.eboot}
           />
+          {hasTouchControls ? (
+            <Button
+              title={`On-screen controls: ${touchControls ? 'on' : 'off'}`}
+              onPress={() => {
+                Gow3Core.setTouchControlsEnabled(!touchControls);
+                setTouchControls(!touchControls);
+              }}
+            />
+          ) : null}
           {files.started ? null : (
             <Button
               title="CPU only"

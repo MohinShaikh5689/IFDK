@@ -207,6 +207,12 @@ static void load_button_maps(void) {
     if (pad || keys) printf("Runtime: pad map: %d gamepad and %d keyboard buttons remapped\n",pad,keys);
 }
 
+/* On-screen controls (iOS, Gow3TouchControls.swift): written by the UI thread, read here. */
+static uint32_t touch_buttons, touch_sticks=0x80808080u;
+void gow3_touch_pad(uint32_t buttons, uint32_t sticks) {
+    __atomic_store_n(&touch_buttons,buttons,__ATOMIC_RELAXED);
+    __atomic_store_n(&touch_sticks,sticks,__ATOMIC_RELAXED);
+}
 static void key_axis(uint8_t *axis, bool negative, bool positive) {
     if (negative || positive) *axis=(uint8_t)(128-(negative ? 128 : 0)+(positive ? 127 : 0));
 }
@@ -242,6 +248,18 @@ static void sample_host(PadData *d) {
                 }
             }
         }
+    }
+    /* The on-screen controls add to the pad like the keyboard: a stick follows the touch while it
+     * is off center. */
+    const uint32_t touched=__atomic_load_n(&touch_buttons,__ATOMIC_RELAXED);
+    const uint32_t sticks=__atomic_load_n(&touch_sticks,__ATOMIC_RELAXED);
+    d->buttons|=touched;
+    if (touched & BTN_L2) d->l2=255;
+    if (touched & BTN_R2) d->r2=255;
+    uint8_t *const axes[4]={&d->left_x,&d->left_y,&d->right_x,&d->right_y};
+    for (int i=0;i<4;++i) {
+        const uint8_t v=(uint8_t)(sticks>>(8*i));
+        if (v!=128) *axes[i]=v;
     }
     /* The keyboard works with or without a gamepad: its buttons add to the pad's, and a stick
      * follows the keys only while one of them is held. */

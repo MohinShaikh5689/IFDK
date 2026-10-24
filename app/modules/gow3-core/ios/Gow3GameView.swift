@@ -10,8 +10,9 @@ final class Gow3MetalView: UIView {
   var metalLayer: CAMetalLayer { layer as! CAMetalLayer }
 }
 
-final class Gow3GameViewController: UIViewController {
+final class Gow3GameViewController: UIViewController, UIGestureRecognizerDelegate {
   let metalView = Gow3MetalView()
+  private var touchControls: Gow3TouchControlsView?
 
   override func loadView() {
     metalView.backgroundColor = .black
@@ -26,7 +27,22 @@ final class Gow3GameViewController: UIViewController {
     let hide = UITapGestureRecognizer(target: self, action: #selector(hideGameView))
     hide.numberOfTouchesRequired = 2
     hide.numberOfTapsRequired = 2
+    // Not from touches on the on-screen controls: two thumbs tapping buttons would hide the game.
+    hide.delegate = self
     view.addGestureRecognizer(hide)
+  }
+
+  func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+    touch.view === metalView
+  }
+
+  /// The on-screen controls (Gow3TouchControls.swift) over the game.
+  func addTouchControls() {
+    guard touchControls == nil else { return }
+    let controls = Gow3TouchControlsView(frame: view.bounds)
+    controls.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    view.addSubview(controls)
+    touchControls = controls
   }
 
   @objc private func hideGameView() {

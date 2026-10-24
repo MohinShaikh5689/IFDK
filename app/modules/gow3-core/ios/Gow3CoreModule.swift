@@ -437,6 +437,7 @@ public class Gow3CoreModule: Module {
         }
         controller.feedsGame = true
         controller.publishSurface()
+        controller.addTouchControls()
         do {
           try Gow3CoreModule.startLoader(cpuOnly: false)
           promise.resolve("Game started; two-finger double tap hides the game view.")
@@ -445,6 +446,15 @@ public class Gow3CoreModule: Module {
         }
       }
     }.runOnQueue(.main)
+
+    /// The launcher's switch for the on-screen controls (they also hide while a controller is connected).
+    Function("touchControlsEnabled") { () -> Bool in
+      Gow3TouchControls.enabled
+    }
+
+    Function("setTouchControlsEnabled") { (enabled: Bool) in
+      Gow3TouchControls.enabled = enabled
+    }
 
     /// The last 24 KiB of Documents/gow3/loader.log.
     Function("readGameLog") { () -> String in

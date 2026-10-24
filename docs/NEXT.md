@@ -98,6 +98,11 @@ pass still takes ~27.5 ms (bloom drops to ~3.4 ms), FPS 18-22: the main pass is 
 per vertex (~11 us of GPU per draw), so resolution or MetalFX alone will not fix heavy scenes. 0.1.44:
 `GOW3_GPU_PROFILE=3` also splits render passes where the draws' shaders change (no split where restarting
 would clear) and prints draws and vertices per shader pair.
+0.1.44 also adds on-screen controls (app/modules/gow3-core/ios/Gow3TouchControls.swift): two sticks, face
+buttons, d-pad, L1/L2/R1/R2, L3/R3, Options and the touchpad (right side), fed to runtime_pad.c through
+`gow3_touch_pad` and added to a controller's input. Launcher switch "On-screen controls" (UserDefaults);
+they hide while a controller is connected; a "Hide"/"Pad" button at the top toggles them in game. The
+two-finger double tap (hide the game view) only counts outside the controls.
 
 **FIXED (2026-10-24): texture corruption.** 0.1.40 showed every misplaced BC texture under large linear
 R32G32B32A32Uint storage images (4096x80..4096x160, the game's GPU texture moves, as SpartanPort #331 says),
