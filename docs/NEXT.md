@@ -47,6 +47,14 @@ detiler, so a detiler that is wrong for some layouts every time is not ruled out
 guest memory, and many of them visibly broken in memory itself: regular stripes, bands of other data, rainbow
 noise. Upload, detiling, binding and sampling are correct; the game's own CPU code wrote bad texture data.
 
+**0.1.35 on the device:** `FEX host features: MOPS 0 CSSC 1 FlagM2 1 FRINTTS 1 RPRES 1 AFP 0 RCPC2 1 AVX 1`. The
+A19 has no FEAT_MOPS, so the MOPS path never ran and the textures are still broken. FEX-side differences
+from gow3_android that remain: TSO emulation on (Android: all TSO options off, `fex-config.json`), and the
+A19's CSSC/RPRES/FlagM2/FRINTTS/RCPC2. Env tests without a build: Android's TSO settings, `GOW3_FEX_AVX=0`.
+
+**0.1.36:** `GOW3_FEX_OFF=CSSC,RPRES,...` keeps FEX off the named host features (CSSC, RPRES, FlagM, FlagM2,
+FRINTTS, RCPC, RCPC2, LSE, FCMA, CRC, AES, SHA, PMULL); the startup line lists them all.
+
 **0.1.35 (fix candidate):** FEX's `rep movs` with FEAT_MOPS (MemoryOps.cpp `MemCpy`) checks for overlap with
 `dst - src < Length`, where Length counts elements, not bytes, so a `rep movs{w,d,q}` move whose gap is between
 the count and the byte length runs `cpyf` (forward-only) over overlapping memory. The A19 has FEAT_MOPS; the
