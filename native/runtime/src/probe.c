@@ -298,6 +298,14 @@ static void fault(int sig, siginfo_t *info, void *context) {
         }
     }
 #endif
+    if (runtime_wtrace_enabled && (sig == SIGSEGV || sig == SIGBUS)) {
+        GuestRegs regs;
+        const int where = guest_cpu_signal_regs(context, &regs);
+        const uintptr_t host_pc = guest_cpu_host_pc(context);
+        runtime_wtrace(where == GUEST_CPU_IN_GUEST ? WTRACE_FAULT_GUEST
+                       : where == GUEST_CPU_IN_HOST_CALL ? WTRACE_FAULT_HOST_CALL : WTRACE_FAULT_HOST,
+                       (uintptr_t)info->si_addr, 0, where ? regs.rip : host_pc, host_pc);
+    }
     /* GPU page tracking (write-protected guest pages) is resolved first. */
     /* Darwin reports writes to write-protected pages as SIGBUS. */
 #ifndef __APPLE__

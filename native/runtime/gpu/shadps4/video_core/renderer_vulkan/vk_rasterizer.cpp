@@ -21,6 +21,7 @@
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_pipeline_cache.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
+#include "gow3_wtrace.h"
 #include "video_core/renderer_vulkan/vk_gpu_profiler.h"
 #include "gow3_threads.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
@@ -3179,9 +3180,15 @@ void Rasterizer::FillBuffer(VAddr address, u32 num_bytes, u32 value, bool is_gds
     if (!is_gds) {
         texture_cache.ClearMeta(address);
         if (!buffer_cache.IsRegionGpuModified(address, num_bytes)) {
+            if (runtime_wtrace_enabled) {
+                runtime_wtrace(Gow3WriteTrace::DmaFill, address, num_bytes, value, 0);
+            }
             u32* buffer = std::bit_cast<u32*>(address);
             std::fill(buffer, buffer + (num_bytes / sizeof(u32)), value);
             return;
+        }
+        if (runtime_wtrace_enabled) {
+            runtime_wtrace(Gow3WriteTrace::DmaFill, address, num_bytes, value, 1);
         }
     }
     const auto [buffer, offset] = [&] -> std::pair<const VideoCore::Buffer*, u64> {
@@ -3199,9 +3206,15 @@ void Rasterizer::CopyBuffer(VAddr dst, VAddr src, u32 num_bytes, bool dst_gds, b
         if (!src_gds && !buffer_cache.IsRegionGpuModified(src, num_bytes) &&
             !texture_cache.FindImageFromRange(src, num_bytes)) {
             // Both buffers were not transferred to GPU yet. Can safely copy in host memory.
+            if (runtime_wtrace_enabled) {
+                runtime_wtrace(Gow3WriteTrace::DmaCopyCpu, dst, num_bytes, src, 0);
+            }
             std::memcpy(std::bit_cast<void*>(dst), std::bit_cast<void*>(src), num_bytes);
             return;
         }
+    }
+    if (runtime_wtrace_enabled && !dst_gds) {
+        runtime_wtrace(Gow3WriteTrace::DmaCopyGpu, dst, num_bytes, src_gds ? 0 : src, src_gds);
     }
     texture_cache.InvalidateMemoryFromGPU(dst, num_bytes);
     const auto* gds_buffer = buffer_cache.GetGdsBuffer();

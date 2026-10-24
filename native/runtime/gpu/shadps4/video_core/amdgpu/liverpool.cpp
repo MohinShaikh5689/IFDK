@@ -251,7 +251,7 @@ void SignalEop(const PM4CmdEventWriteEop& eop) {
         [](void* address, u64 data, u32 num_bytes) {
             auto* memory = Core::Memory::Instance();
             Gow3WriteLog::Note(reinterpret_cast<u64>(address), &data, num_bytes, Gow3WriteLog::Fence);
-            if (!memory->TryWriteBacking(address, &data, num_bytes)) {
+            if (!memory->TryWriteBacking(address, &data, num_bytes, 1)) {
                 memcpy(address, &data, num_bytes);
             }
         },
@@ -346,7 +346,7 @@ void RunEventWriteEos(Vulkan::Rasterizer& rasterizer, const u8* data) {
     event_eos.SignalFence([](void* address, u64 value, u32 num_bytes) {
         auto* memory = Core::Memory::Instance();
         Gow3WriteLog::Note(reinterpret_cast<u64>(address), &value, num_bytes, Gow3WriteLog::Fence);
-        if (!memory->TryWriteBacking(address, &value, num_bytes)) {
+        if (!memory->TryWriteBacking(address, &value, num_bytes, 2)) {
             memcpy(address, &value, num_bytes);
         }
     });

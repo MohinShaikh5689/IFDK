@@ -1,4 +1,5 @@
 #include "gow3_write_log.h"
+#include "gow3_wtrace.h"
 // gow3: glue between the C loader and the vendored shadPS4 video core.
 #include "gow3_overlay.h"
 #include "gow3_png.h"
@@ -132,9 +133,12 @@ void MemoryManager::CopySparseMemory(VAddr source, u8* dest, u64 size) {
         CopySparseSerial(source + offset, dest + offset, std::min(Chunk, size - offset));
     });
 }
-bool MemoryManager::TryWriteBacking(void* address, const void* data, u64 size) {
+bool MemoryManager::TryWriteBacking(void* address, const void* data, u64 size, u32 site) {
     Gow3WriteLog::Note(reinterpret_cast<uintptr_t>(address), data, size, Gow3WriteLog::Backing);
     const bool written = runtime_memory_write_backing(reinterpret_cast<uintptr_t>(address), data, size) != 0;
+    if (runtime_wtrace_enabled) {
+        runtime_wtrace(Gow3WriteTrace::Backing, reinterpret_cast<uintptr_t>(address), size, site, written);
+    }
     // The write skipped page tracking: textures over it must reload (#138).
     // ponytail: fence and label writes (<= 8 bytes) never hold texels, so they are left out;
     // every one would send all texture bindings through the locked path.

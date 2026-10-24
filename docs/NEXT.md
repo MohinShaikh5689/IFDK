@@ -58,6 +58,15 @@ Android's TSO settings (all off) crash at once (a jump to float data, 0x3f800000
 strict TSO (vector + memcpy/set TSO on) changes nothing; `GOW3_FEX_AVX=0` crashes on the game's first
 AVX instruction (the game needs AVX).
 
+**0.1.38 (diagnostics): write provenance trace.** `GOW3_WRITE_TRACE=1` records every write into guest memory
+with its source into `user/writes.bin` (48-byte records, runtime_memory.c `WriteRecord`; kinds in runtime.h
+`WTRACE_*`): write faults on tracked pages (guest RIP, or the host PC for runtime/GPU threads), file
+reads (fd + offset; the log names each open), memcpy/memmove/memset of 4 KiB or more (source and the guest
+caller), GPU writes through the backing view (`TryWriteBacking` call site 1-8), DMA copies (CPU or GPU path)
+and fills. A lock-free 1M-record ring is drained by a writer thread (safe in the fault handler; a full ring
+drops and says so). `native/scripts/wtrace.py writes.bin dump_dir loader.log` finds the texture chunks
+that sit at two addresses in a dump and lists the writes that covered them.
+
 **0.1.37 on the device:** still broken with the upstream fixes (run 1) and with every A19-only feature off
 (run 2, `FEX host features: ... CSSC 0 FlagM 0 FlagM2 0 FRINTTS 0 RPRES 0 RCPC2 0 FCMA 0`). Test E (GPU memory
 copies in order: `GOW3_COPY_THREADS=0`, toggles 672000 = deferred uploads, deferred stream copies, parallel

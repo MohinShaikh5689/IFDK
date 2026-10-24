@@ -243,8 +243,12 @@ static int64_t do_open(const char *guest,int flags,int mode) {
     if (fd<0) { pthread_mutex_unlock(&lock); if (host>=0) close(host); free_listing(dir); return -EMFILE; }
     files[fd]=(File){.used=1,.host=host,.dir=dir};
     snprintf(files[fd].path,sizeof(files[fd].path),"%s",guest);
-    ++opens;
+    const unsigned long long open_number=++opens;
     pthread_mutex_unlock(&lock);
+    if (runtime_wtrace_enabled) {
+        runtime_wtrace(WTRACE_OPEN,0,0,(uint64_t)fd,open_number);
+        printf("Write trace: open %llu fd %d %s\n",open_number,fd,guest);
+    }
     if (audio_trace() && strstr(guest,"sound/")) printf("Audio trace: open(%s) -> fd %d, %lld bytes\n",guest,fd,(long long)s.st_size);
     const char *mod_trace=getenv("GOW3_MOD_TRACE"), *mod_root=getenv("GOW3_MODS_DIR");
     if (mod_trace && mod_trace[0]=='1' && mod_root) {
@@ -336,10 +340,12 @@ static ssize_t bounce_read(int h,void *buffer,uint64_t size,int64_t offset) {
 static int64_t do_read(int fd,void *buffer,uint64_t size) {
     int h=host_fd(fd);
     if (h<0) return -EBADF;
+    const int64_t position=runtime_wtrace_enabled ? (int64_t)lseek(h,0,SEEK_CUR) : -1;
 #ifdef __APPLE__
     if (!direct_read()) {
         ssize_t n=bounce_read(h,buffer,size,-1);
         if (n<0) return -errno;
+        if (n>0) runtime_wtrace(WTRACE_FILE_READ,(uintptr_t)buffer,(uint64_t)n,(uint64_t)fd,(uint64_t)position);
         __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
         return n;
     }
@@ -350,6 +356,7 @@ static int64_t do_read(int fd,void *buffer,uint64_t size) {
     if (n<0 && errno==EFAULT) log_efault(fd,size);
 #endif
     if (n<0) { if (audio_trace()) printf("Audio trace: read(fd %d, %llu) failed, errno %d\n",fd,(unsigned long long)size,errno); return -errno; }
+    if (n>0) runtime_wtrace(WTRACE_FILE_READ,(uintptr_t)buffer,(uint64_t)n,(uint64_t)fd,(uint64_t)position);
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
     return n;
 }
@@ -360,6 +367,7 @@ static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
     if (!direct_read() && offset>=0) {
         ssize_t n=bounce_read(h,buffer,size,offset);
         if (n<0) return -errno;
+        if (n>0) runtime_wtrace(WTRACE_FILE_READ,(uintptr_t)buffer,(uint64_t)n,(uint64_t)fd,(uint64_t)offset);
         __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
         return n;
     }
@@ -370,6 +378,7 @@ static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
     if (n<0 && errno==EFAULT) log_efault(fd,size);
 #endif
     if (n<0) { if (audio_trace()) printf("Audio trace: pread(fd %d, %llu @%lld) failed, errno %d\n",fd,(unsigned long long)size,(long long)offset,errno); return -errno; }
+    if (n>0) runtime_wtrace(WTRACE_FILE_READ,(uintptr_t)buffer,(uint64_t)n,(uint64_t)fd,(uint64_t)offset);
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
     return n;
 }

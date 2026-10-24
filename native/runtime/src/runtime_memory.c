@@ -844,10 +844,72 @@ static void *toggle_watcher(void *path) {
     }
     return NULL;
 }
+/* ---- Write provenance trace (runtime.h) ---- */
+_Static_assert(WTRACE_BACKING==9 && WTRACE_DMA_COPY_CPU==10 && WTRACE_DMA_COPY_GPU==11 && WTRACE_DMA_FILL==12,
+               "gpu/shim/gow3_wtrace.h mirrors these values");
+typedef struct { uint64_t seq, time_ns, address, a, b; uint32_t size; uint16_t kind, thread; } WriteRecord;
+enum { WTRACE_SLOTS=1<<20 };
+static WriteRecord wtrace_ring[WTRACE_SLOTS];
+static uint64_t wtrace_head, wtrace_tail, wtrace_dropped;
+static uint16_t wtrace_threads;
+static __thread uint16_t wtrace_thread;
+int runtime_wtrace_enabled;
+void runtime_wtrace(unsigned kind, uintptr_t address, uint64_t size, uint64_t a, uint64_t b) {
+    if (!runtime_wtrace_enabled) return;
+    if (!wtrace_thread) wtrace_thread=__atomic_add_fetch(&wtrace_threads,1,__ATOMIC_RELAXED);
+    /* Full ring: drop (counted) rather than block a faulting thread. */
+    if (__atomic_load_n(&wtrace_head,__ATOMIC_RELAXED)-__atomic_load_n(&wtrace_tail,__ATOMIC_ACQUIRE)>=WTRACE_SLOTS-4096) {
+        __atomic_add_fetch(&wtrace_dropped,1,__ATOMIC_RELAXED);
+        return;
+    }
+    const uint64_t i=__atomic_fetch_add(&wtrace_head,1,__ATOMIC_ACQ_REL);
+    WriteRecord *r=&wtrace_ring[i%WTRACE_SLOTS];
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC,&t);
+    r->time_ns=(uint64_t)t.tv_sec*1000000000u+(uint64_t)t.tv_nsec;
+    r->address=address; r->a=a; r->b=b;
+    r->size=size>UINT32_MAX ? UINT32_MAX : (uint32_t)size;
+    r->kind=(uint16_t)kind; r->thread=wtrace_thread;
+    __atomic_store_n(&r->seq,i+1,__ATOMIC_RELEASE);
+}
+static void *wtrace_writer(void *path) {
+    FILE *f=fopen(path,"wb");
+    if (!f) { printf("Write trace: cannot write %s\n",(const char *)path); runtime_wtrace_enabled=0; return NULL; }
+    printf("Write trace: recording to %s (%zu-byte records)\n",(const char *)path,sizeof(WriteRecord));
+    uint64_t written=0, reported_dropped=0;
+    for (unsigned round=0;;++round) {
+        uint64_t tail=wtrace_tail;
+        const uint64_t head=__atomic_load_n(&wtrace_head,__ATOMIC_ACQUIRE);
+        for (; tail<head; ++tail, ++written) {
+            const WriteRecord *r=&wtrace_ring[tail%WTRACE_SLOTS];
+            if (__atomic_load_n(&r->seq,__ATOMIC_ACQUIRE)!=tail+1) break; /* still being filled */
+            fwrite(r,sizeof(*r),1,f);
+        }
+        __atomic_store_n(&wtrace_tail,tail,__ATOMIC_RELEASE);
+        fflush(f);
+        const uint64_t dropped=__atomic_load_n(&wtrace_dropped,__ATOMIC_RELAXED);
+        if (round%100==0 && dropped!=reported_dropped) {
+            printf("Write trace: %llu records, %llu dropped (ring full)\n",(unsigned long long)written,(unsigned long long)dropped);
+            reported_dropped=dropped;
+        }
+#ifdef _WIN32
+        compat_sleep_ns(50000000);
+#else
+        struct timespec t={0,50000000}; nanosleep(&t,NULL);
+#endif
+    }
+    return NULL;
+}
 void runtime_memory_set_gpu_hooks(GpuRange map, GpuRange unmap, GpuRange invalidate) {
     const char *toggles=getenv("GOW3_TOGGLE_FILE");
     static pthread_t watcher;
     if (toggles && !watcher) pthread_create(&watcher,NULL,toggle_watcher,(void *)toggles);
+    const char *trace=getenv("GOW3_WRITE_TRACE"), *trace_file=getenv("GOW3_WRITE_TRACE_FILE");
+    static pthread_t trace_writer;
+    if (trace && trace[0]=='1' && !trace_writer) {
+        runtime_wtrace_enabled=1;
+        pthread_create(&trace_writer,NULL,wtrace_writer,(void *)(trace_file && *trace_file ? trace_file : "writes.bin"));
+    }
     write_lock();
     hook_map=map; hook_unmap=unmap; hook_invalidate=invalidate;
     for (size_t i=0;i<vma_count;++i) if (vmas[i].kind!=KIND_RESERVED) queue_hook(HOOK_MAP,vmas[i].start,vmas[i].end-vmas[i].start);

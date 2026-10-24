@@ -111,7 +111,7 @@ void TextureCache::RetireReadbacks() {
             if (entry.valid) {
                 entry.payload.Invalidate();
                 Core::Memory::Instance()->TryWriteBacking(std::bit_cast<u8*>(entry.address),
-                    entry.payload.mapped, entry.size);
+                    entry.payload.mapped, entry.size, 4);
                 if (entry.watched) WatchReadback<false>(entry.address, entry.size);
                 ++readbacks_completed;
             }
@@ -265,7 +265,7 @@ void TextureCache::ProcessDownloadImages() {
                     scheduler.Finish();
                     copy->staging.Invalidate();
                     Core::Memory::Instance()->TryWriteBacking(
-                        std::bit_cast<u8*>(copy->guest_address), copy->staging.mapped, copy->size);
+                        std::bit_cast<u8*>(copy->guest_address), copy->staging.mapped, copy->size, 5);
                     runtime.GetStagingPool().FreeDeferred(copy->staging);
                 } else {
                     WatchReadback<true>(copy->guest_address, copy->size);
@@ -337,7 +337,7 @@ void TextureCache::ProcessDownloadImages() {
     for (const PendingDownload& download : pending) {
         download.staging.Invalidate();
         Core::Memory::Instance()->TryWriteBacking(std::bit_cast<u8*>(download.guest_address),
-                                                  download.staging.mapped, download.size);
+                                                  download.staging.mapped, download.size, 6);
         runtime.GetStagingPool().FreeDeferred(download.staging);
     }
 }
@@ -403,13 +403,13 @@ void TextureCache::DownloadImageMemory(ImageId image_id, bool sync) {
         scheduler.Finish();
         download.Invalidate();
         Core::Memory::Instance()->TryWriteBacking(std::bit_cast<u8*>(image.info.guest_address),
-                                                  download.mapped, download_size);
+                                                  download.mapped, download_size, 7);
     } else {
         scheduler.DeferPriorityOperation(
             [this, device_addr = image.info.guest_address, download, download_size] {
                 download.Invalidate();
                 Core::Memory::Instance()->TryWriteBacking(std::bit_cast<u8*>(device_addr),
-                                                          download.mapped, download_size);
+                                                          download.mapped, download_size, 8);
                 runtime.GetStagingPool().FreeDeferred(download);
             });
     }

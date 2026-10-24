@@ -37,6 +37,23 @@ void runtime_mutex_report(void);
 uintptr_t runtime_memory_resolve(const char *name);
 void runtime_memory_report(void);
 int runtime_memory_is_mapped(uintptr_t address, uint64_t size);
+/* Write provenance trace (GOW3_WRITE_TRACE=1, file GOW3_WRITE_TRACE_FILE): one record per write
+ * into guest memory from each source, to find the write that puts texture data in the wrong place.
+ * Safe in signal handlers (lock-free ring, drained by a writer thread). */
+enum {
+    WTRACE_FAULT_GUEST=1, /* a: guest RIP of the store, b: host PC */
+    WTRACE_FAULT_HOST_CALL, /* host code called by the guest; a: guest return address, b: host PC */
+    WTRACE_FAULT_HOST, /* a host thread; a: host PC */
+    WTRACE_FILE_READ, /* a: fd, b: file offset */
+    WTRACE_OPEN, /* a: fd, b: open number (the log names the file) */
+    WTRACE_MEMCPY, WTRACE_MEMMOVE, /* a: source, b: guest return address */
+    WTRACE_MEMSET, /* a: value, b: guest return address */
+    WTRACE_BACKING, /* GPU write through the backing view; a: call site, b: 1 if written */
+    WTRACE_DMA_COPY_CPU, WTRACE_DMA_COPY_GPU, /* a: source */
+    WTRACE_DMA_FILL, /* a: value, b: 1 if on the GPU */
+};
+extern int runtime_wtrace_enabled;
+void runtime_wtrace(unsigned kind, uintptr_t address, uint64_t size, uint64_t a, uint64_t b);
 const char *runtime_import_name(const char *name);
 uintptr_t runtime_rwlock_resolve(const char *name);
 void runtime_rwlock_report(void);

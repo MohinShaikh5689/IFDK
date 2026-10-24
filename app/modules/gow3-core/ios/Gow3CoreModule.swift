@@ -210,6 +210,9 @@ public class Gow3CoreModule: Module {
     // Documents/gow3/user/dumps/dump_N (GPU image and guest memory; texture_cache.cpp DumpOnTrigger).
     setenv("GOW3_DUMP_TRIGGER", root.appendingPathComponent("dump.txt").path, 0)
     setenv("GOW3_DUMP_DIR", root.appendingPathComponent("user/dumps").path, 0)
+    // GOW3_WRITE_TRACE=1 in env.txt: every write into guest memory with its source, to this file
+    // (runtime_memory.c; the corruption hunt pairs it with a texture dump).
+    setenv("GOW3_WRITE_TRACE_FILE", root.appendingPathComponent("user/writes.bin").path, 0)
     excludeGameFilesFromBackup()
     let log = gameLogURL.path
     watchThermalState(log: log)

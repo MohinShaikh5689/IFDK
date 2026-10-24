@@ -167,13 +167,19 @@ static ABI __attribute__((noreturn)) void stack_fail(void) {
     exit(22);
 }
 static ABI void *guest_memset(void *dst, int value, size_t size) {
-    atomic_fetch_add_explicit(&memory_calls,1,memory_order_relaxed); return memset(dst, value, size);
+    atomic_fetch_add_explicit(&memory_calls,1,memory_order_relaxed);
+    if (runtime_wtrace_enabled && size>=4096) runtime_wtrace(WTRACE_MEMSET,(uintptr_t)dst,size,(uint64_t)value,guest_cpu_return_address(0));
+    return memset(dst, value, size);
 }
 static ABI void *guest_memcpy(void *dst, const void *src, size_t size) {
-    atomic_fetch_add_explicit(&memory_calls,1,memory_order_relaxed); return memcpy(dst, src, size);
+    atomic_fetch_add_explicit(&memory_calls,1,memory_order_relaxed);
+    if (runtime_wtrace_enabled && size>=4096) runtime_wtrace(WTRACE_MEMCPY,(uintptr_t)dst,size,(uintptr_t)src,guest_cpu_return_address(0));
+    return memcpy(dst, src, size);
 }
 static ABI void *guest_memmove(void *dst, const void *src, size_t size) {
-    atomic_fetch_add_explicit(&memory_calls,1,memory_order_relaxed); return memmove(dst, src, size);
+    atomic_fetch_add_explicit(&memory_calls,1,memory_order_relaxed);
+    if (runtime_wtrace_enabled && size>=4096) runtime_wtrace(WTRACE_MEMMOVE,(uintptr_t)dst,size,(uintptr_t)src,guest_cpu_return_address(0));
+    return memmove(dst, src, size);
 }
 static ABI int guest_memcmp(const void *a, const void *b, size_t size) {
     atomic_fetch_add_explicit(&memory_calls,1,memory_order_relaxed); return memcmp(a, b, size);
