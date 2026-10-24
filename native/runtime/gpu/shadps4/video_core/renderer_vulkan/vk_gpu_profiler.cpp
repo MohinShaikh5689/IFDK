@@ -11,10 +11,14 @@ namespace Vulkan {
 
 void GpuProfiler::Init(const Instance& instance, Scheduler& scheduler) {
     const char* env = std::getenv("GOW3_GPU_PROFILE");
-    if (!env || (env[0] != '1' && env[0] != '2') || instance_ptr) {
+    if (!env || (env[0] != '1' && env[0] != '2' && env[0] != '3') || instance_ptr) {
         return;
     }
     instance_ptr = new GpuProfiler(instance, scheduler);
+    if (env[0] == '3') {
+        instance_ptr->split_draws = true;
+        std::printf("GPU profile: mode 3, render passes split where the draws' shaders change\n");
+    }
     // gow3 (iOS): mode 2 submitted inside a draw's recording (MarkPass runs after the draw's
     // descriptors, push constants and dynamic state are recorded), so the draw went out in a
     // fresh command buffer without them and Apple's driver crashed (AGXMetalG18P, address 0x20).
@@ -105,6 +109,7 @@ void GpuProfiler::BeginFrame() {
     }
     used[slice] = 0;
     keys[slice].clear();
+    counts[slice].clear();
     pending[slice] = false;
     Print();
 }
@@ -125,6 +130,11 @@ void GpuProfiler::Collect(u32 which) {
         total.ms += ms;
         ++total.segments;
     }
+    for (const auto& [key, count] : counts[which]) {
+        auto& total = totals[key].count;
+        total.draws += count.draws;
+        total.vertices += count.vertices;
+    }
     ++frames;
 }
 
@@ -142,8 +152,14 @@ void GpuProfiler::Print() {
     }
     std::printf("GPU profile: %.2f ms/frame over %llu frames, %zu labels\n", sum / frames,
                 static_cast<unsigned long long>(frames), sorted.size());
-    for (size_t i = 0; i < std::min<size_t>(sorted.size(), 30); ++i) {
+    for (size_t i = 0; i < std::min<size_t>(sorted.size(), split_draws ? 60 : 30); ++i) {
         const auto& [key, total] = sorted[i];
+        if (split_draws) {
+            std::printf("  %6.3f ms/frame %5.1f/frame %6.1f draws %8.1fk verts  %s\n", total.ms / frames,
+                        double(total.segments) / frames, double(total.count.draws) / frames,
+                        double(total.count.vertices) / frames / 1000.0, described[key].c_str());
+            continue;
+        }
         std::printf("  %6.3f ms/frame %5.1f/frame  %s\n", total.ms / frames,
                     double(total.segments) / frames, described[key].c_str());
     }

@@ -3725,11 +3725,37 @@ namespace Vulkan {
 
 void Rasterizer::MarkPass(const GraphicsPipeline* pipeline, const RenderState& state) {
     auto* profiler = GpuProfiler::Get();
-    if (!profiler || !scheduler.WillBeginRendering(state)) {
+    if (!profiler) {
         return;
     }
     const auto& vs = pipeline->GetStage(Shader::SwStage::Vertex);
     const auto* ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
+    const auto& draw_regs = Regs();
+    const u64 vertices = u64(draw_regs.num_indices) * draw_regs.num_instances.NumInstances();
+    // Mode 3: the shader pair of the open segment (GPU thread only).
+    static u64 segment_shaders = 0;
+    const u64 shaders = vs.pgm_hash ^ (ps ? std::rotl(ps->pgm_hash, 1) : 0);
+    if (!scheduler.WillBeginRendering(state)) {
+        bool clears = state.depth_stencil_attachment.depth_clear || state.depth_stencil_attachment.stencil_clear;
+        for (u32 cb = 0; cb < state.num_color_attachments; ++cb) {
+            clears |= state.color_attachments[cb].is_clear != 0;
+        }
+        // Inside a render pass: a new segment (the pass restarts with loads) where the shaders
+        // change, unless restarting would clear the targets again.
+        if (profiler->SplitDraws() && shaders != segment_shaders && !clears) {
+            segment_shaders = shaders;
+            const u64 key = XXH3_64bits(std::array<u64, 4>{vs.pgm_hash, ps ? ps->pgm_hash : 0,
+                                                           state.width | u64(state.height) << 32,
+                                                           0xD4A3ull}.data(), 4 * sizeof(u64));
+            profiler->Mark(key, [&] {
+                return fmt::format("  draws vs {:016x} ps {:016x} in {}x{}", vs.pgm_hash,
+                                   ps ? ps->pgm_hash : 0, state.width, state.height);
+            });
+        }
+        profiler->CountDraw(vertices);
+        return;
+    }
+    segment_shaders = shaders;
     std::array<u64, AmdGpu::NUM_COLOR_BUFFERS + 6> parts{};
     parts[0] = state.width | u64(state.height) << 32;
     parts[1] = vs.pgm_hash;
@@ -3756,6 +3782,7 @@ void Rasterizer::MarkPass(const GraphicsPipeline* pipeline, const RenderState& s
                                          : std::string{"-"},
                            vs.pgm_hash, ps ? ps->pgm_hash : 0);
     });
+    profiler->CountDraw(vertices);
 }
 
 void Rasterizer::NoteFrameStart() {

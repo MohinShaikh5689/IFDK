@@ -65,6 +65,20 @@ public:
     /// At the display pass: closes the frame's last segment, reads an old frame's results.
     void BeginFrame();
 
+    /// Mode 3: render passes are also split where the draws' shaders change, so each shader
+    /// pair gets its own GPU time, with its draw and vertex counts (CountDraw).
+    [[nodiscard]] bool SplitDraws() const noexcept {
+        return split_draws;
+    }
+    /// One draw of `vertices` (indices or vertices, times instances) in the open segment.
+    void CountDraw(u64 vertices) {
+        if (!paused && used[slice] > 0 && used[slice] < SliceQueries) {
+            auto& count = counts[slice][current];
+            ++count.draws;
+            count.vertices += vertices;
+        }
+    }
+
 private:
     GpuProfiler(const Instance& instance, Scheduler& scheduler);
     void WriteTimestamp(u64 key, bool submit = true);
@@ -86,14 +100,21 @@ private:
     std::array<u64, NumSlices> ticks{}; ///< scheduler tick of each pending slice's last timestamp
     bool paused = false; ///< the next slice is still in flight: no timestamps this frame
     std::unordered_map<u64, std::string> described;
+    struct Count {
+        u64 draws = 0;
+        u64 vertices = 0;
+    };
+    std::array<std::unordered_map<u64, Count>, NumSlices> counts; ///< mode 3, per label
     struct Total {
         double ms = 0;
         u64 segments = 0;
+        Count count;
     };
     std::unordered_map<u64, Total> totals;
     u64 frames = 0;
     u64 current = 0;
     bool submit_each = false;
+    bool split_draws = false;
     bool submitting = false; ///< inside the submission a mode 2 timestamp started
     std::chrono::steady_clock::time_point window = std::chrono::steady_clock::now();
 };

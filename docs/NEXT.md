@@ -91,6 +91,13 @@ The 0x199239 crash hit a third time (r15/r12/r13 = 0x70015aa7e0/7e8/7ec, the loc
 Guess: Darwin left si_addr 0 for a lock add on a GPU-tracked (write-protected) page, so the tracker never saw
 the write. 0.1.43: the fault handler takes the address from the exception state's FAR when si_addr is 0, and
 the fault report prints host pc, ESR, FAR, si_addr, si_code and the JIT code around pc.
+**GPU profile, heavy opening (Poseidon), 0.1.42:** at 600p the main scene pass (1066x600 RGBA8 + D32S8,
+~1500-2500 draws) takes ~24-28 ms of GPU per game frame; bloom (533x300) ~5 ms, shadows (2048x2048) <1 ms,
+GPU idle between submissions ~0.3 ms. 15-20 FPS there. At 480p (patches-480p.bin, 36% fewer pixels) the main
+pass still takes ~27.5 ms (bloom drops to ~3.4 ms), FPS 18-22: the main pass is not pixel bound but per draw /
+per vertex (~11 us of GPU per draw), so resolution or MetalFX alone will not fix heavy scenes. 0.1.44:
+`GOW3_GPU_PROFILE=3` also splits render passes where the draws' shaders change (no split where restarting
+would clear) and prints draws and vertices per shader pair.
 
 **FIXED (2026-10-24): texture corruption.** 0.1.40 showed every misplaced BC texture under large linear
 R32G32B32A32Uint storage images (4096x80..4096x160, the game's GPU texture moves, as SpartanPort #331 says),
