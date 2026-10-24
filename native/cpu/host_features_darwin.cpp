@@ -8,6 +8,7 @@
 //    has AVX, so game code may use it (GOW3_FEX_AVX=0 turns it off).
 #include "host_features_darwin.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <sys/sysctl.h>
@@ -62,5 +63,8 @@ FEXCore::HostFeatures gow3_fex_host_features() {
     if (sysctlbyname("hw.ncpu", &cpus, &len, nullptr, 0) != 0 || cpus <= 0) cpus = 6;
     for (int i = 0; i < cpus; ++i) f.CPUMIDRs.push_back(0u);
     f.HostType = FEXCore::HostFeatures::HostTypeEnum::Linux;
+    std::fprintf(stderr, "FEX host features: MOPS %d CSSC %d FlagM2 %d FRINTTS %d RPRES %d AFP %d RCPC2 %d AVX %d\n",
+                 f.SupportsMOPS, f.SupportsCSSC, f.SupportsFlagM2, f.SupportsFRINTTS, f.SupportsRPRES,
+                 f.SupportsAFP, f.SupportsTSOImm9, f.SupportsAVX);
     return f;
 }
