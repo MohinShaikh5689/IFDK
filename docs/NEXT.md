@@ -38,6 +38,16 @@ all TSO options off (`android/runtime/fex-config.json`); iOS uses FEX defaults (
 Also seen: `MarkAsMaybeDirty` seeds `image.hash` over the whole image but `RefreshImage` compares a hash of
 the first 8x8 texels, and 16 KiB pages put many more textures on that path than 4 KiB.
 
+**0.1.33 on the device:** `reupload.txt` uploaded 1054 textures (744 MB) again in the broken scene and nothing
+changed; 542 GPU-written textures (335 MB) were skipped. The re-upload goes through the same staging copy and
+detiler, so a detiler that is wrong for some layouts every time is not ruled out.
+
+**0.1.34 (diagnostics):** creating `Documents/gow3/dump.txt` writes every texture sampled in the last two GC
+ticks to `user/dumps/dump_N`: `NNN_gpu.bin` (mip 0, layer 0 of the Vulkan image), `NNN_mem.bin` (its tiled
+guest memory) and `manifest.txt` (format, size, pitch, tile/array mode, flags, usage). Detiled and decoded on
+a PC: memory bad = the game's data (FEX); memory good but GPU image different = upload/detile; both good =
+sampling.
+
 **0.1.33 (diagnostics):** creating `Documents/gow3/reupload.txt` uploads every texture not written by the
 GPU again from guest memory (`Texture reupload: N textures ... M GPU-written skipped`). Fixed by it = the
 copy to the GPU (staging copy threads or detiler) damaged them; with `toggles.txt` 256 the re-upload copies

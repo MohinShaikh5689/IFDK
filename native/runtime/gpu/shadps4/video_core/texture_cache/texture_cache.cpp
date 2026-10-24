@@ -1793,6 +1793,7 @@ void TextureCache::RunGarbageCollector() {
 
     VerifyTextures();
     ReuploadOnTrigger();
+    DumpOnTrigger();
     GarbageCollectImages();
     GarbageCollectSamplers();
 }
@@ -1902,6 +1903,104 @@ void TextureCache::ReuploadOnTrigger() {
                 "(%.0f MB)\n",
                 count, double(bytes) / (1024.0 * 1024.0), skipped,
                 double(skipped_bytes) / (1024.0 * 1024.0));
+}
+
+// gow3: GOW3_DUMP_TRIGGER (the app sets Documents/gow3/dump.txt). Creating the file writes every
+// texture sampled in the last two GC ticks to GOW3_DUMP_DIR: NNN_gpu.bin is mip 0, layer 0 of
+// the Vulkan image (linear, rows of `pitch` texels or 4x4 blocks), NNN_mem.bin the image's
+// tiled guest memory, and manifest.txt one line per texture. Detiling and decoding mem.bin on a
+// PC and comparing it with gpu.bin tells bad guest memory from a bad upload from bad sampling.
+void TextureCache::DumpOnTrigger() {
+    static const char* trigger = std::getenv("GOW3_DUMP_TRIGGER");
+    static const char* dir = std::getenv("GOW3_DUMP_DIR");
+    if (!trigger || !dir) {
+        return;
+    }
+    static auto last = std::chrono::steady_clock::now();
+    const auto now = std::chrono::steady_clock::now();
+    if (now - last < std::chrono::milliseconds(500)) {
+        return;
+    }
+    last = now;
+    std::error_code ec;
+    if (!std::filesystem::exists(trigger, ec)) {
+        return;
+    }
+    std::filesystem::remove(trigger, ec);
+    static u32 run = 0;
+    char out[512];
+    std::snprintf(out, sizeof(out), "%s/dump_%u", dir, run++);
+    std::filesystem::create_directories(out, ec);
+    char path[640];
+    std::snprintf(path, sizeof(path), "%s/manifest.txt", out);
+    FILE* manifest = std::fopen(path, "w");
+    if (!manifest) {
+        std::printf("Texture dump: cannot write %s\n", path);
+        return;
+    }
+    std::fprintf(manifest, "# idx addr format format_id width height pitch tile array mips layers "
+                           "num_bits bank_swizzle guest_size mip0_offset mip0_size mip0_pitch "
+                           "mip0_height flags usage gpu_bytes\n");
+    constexpr u64 Budget = 384_MB;
+    u64 written = 0;
+    u32 count = 0;
+    const auto write_file = [&](u32 index, const char* kind, const void* data, u64 size) {
+        std::snprintf(path, sizeof(path), "%s/%03u_%s.bin", out, index, kind);
+        if (FILE* f = std::fopen(path, "wb")) {
+            std::fwrite(data, 1, size, f);
+            std::fclose(f);
+        }
+    };
+    std::scoped_lock lock{mutex};
+    lru_cache.ForEachItemBelow(gc_tick, [&](ImageId image_id) {
+        Image& image = slot_images[image_id];
+        const auto& info = image.info;
+        if (False(image.flags & ImageFlagBits::Registered) || !image.usage.texture ||
+            image.lru_touched_tick + 2 < gc_tick || info.props.is_depth ||
+            info.num_samples > 1 || info.num_bits == 0 || info.guest_address == 0) {
+            return false;
+        }
+        const bool block = info.props.is_block;
+        const u32 rows = block ? Common::DivCeil(info.size.height, 4u) : info.size.height;
+        const u32 row_units = block ? Common::DivCeil(info.pitch, 4u) : info.pitch;
+        const u64 gpu_bytes = u64(row_units) * rows * (info.num_bits / 8);
+        if (written + gpu_bytes + info.guest_size > Budget) {
+            return true;
+        }
+        const auto download = runtime.GetStagingPool().Request(gpu_bytes, MemoryType::HostCached, 16);
+        const vk::BufferImageCopy copy = {
+            .bufferOffset = download.offset,
+            .bufferRowLength = block ? row_units * 4 : info.pitch,
+            .bufferImageHeight = block ? rows * 4 : info.size.height,
+            .imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
+            .imageOffset = {0, 0, 0},
+            .imageExtent = {info.size.width, info.size.height, 1},
+        };
+        runtime.DownloadImage(&image, download.buffer, std::span{&copy, 1});
+        scheduler.Finish();
+        download.Invalidate();
+        const u32 index = count++;
+        write_file(index, "gpu", download.mapped, gpu_bytes);
+        write_file(index, "mem", std::bit_cast<const u8*>(info.guest_address), info.guest_size);
+        written += gpu_bytes + info.guest_size;
+        const auto& mip0 = info.mips_layout[0];
+        std::fprintf(manifest,
+                     "%u %#llx %s %d %u %u %u %u %u %u %u %u %u %u %u %u %u %u %#x %c%c%c%c %llu\n",
+                     index, static_cast<unsigned long long>(info.guest_address),
+                     vk::to_string(info.pixel_format).c_str(), int(info.pixel_format),
+                     info.size.width, info.size.height, info.pitch, u32(info.tile_mode),
+                     u32(info.array_mode), info.resources.levels, info.resources.layers,
+                     info.num_bits, info.bank_swizzle, info.guest_size, u32(mip0.offset),
+                     u32(mip0.size), mip0.pitch, mip0.height, u32(image.flags),
+                     image.usage.texture ? 't' : '-', image.usage.storage ? 's' : '-',
+                     image.usage.render_target ? 'r' : '-',
+                     True(image.flags & ImageFlagBits::Aliased) ? 'a' : '-',
+                     static_cast<unsigned long long>(gpu_bytes));
+        return false;
+    });
+    std::fclose(manifest);
+    std::printf("Texture dump: %u textures (%.0f MB) in %s\n", count,
+                double(written) / (1024.0 * 1024.0), out);
 }
 
 void TextureCache::TouchImage(const Image& image) {

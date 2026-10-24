@@ -327,6 +327,7 @@ public:
     /// draws an old copy): it is logged and uploaded again.
     void VerifyTextures();
     void ReuploadOnTrigger();
+    void DumpOnTrigger();
 
     template <typename Func>
     void ForEachImageInRegion(VAddr cpu_addr, size_t size, Func&& func) {

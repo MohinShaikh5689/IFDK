@@ -206,6 +206,10 @@ public class Gow3CoreModule: Module {
     // Documents/gow3/reupload.txt (any content): every texture not written by the GPU is uploaded
     // again from guest memory and the file is removed (texture_cache.cpp, ReuploadOnTrigger).
     setenv("GOW3_REUPLOAD_TRIGGER", root.appendingPathComponent("reupload.txt").path, 0)
+    // Documents/gow3/dump.txt (any content): textures sampled in the last frames are written to
+    // Documents/gow3/user/dumps/dump_N (GPU image and guest memory; texture_cache.cpp DumpOnTrigger).
+    setenv("GOW3_DUMP_TRIGGER", root.appendingPathComponent("dump.txt").path, 0)
+    setenv("GOW3_DUMP_DIR", root.appendingPathComponent("user/dumps").path, 0)
     excludeGameFilesFromBackup()
     let log = gameLogURL.path
     watchThermalState(log: log)
