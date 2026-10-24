@@ -58,6 +58,20 @@ Android's TSO settings (all off) crash at once (a jump to float data, 0x3f800000
 strict TSO (vector + memcpy/set TSO on) changes nothing; `GOW3_FEX_AVX=0` crashes on the game's first
 AVX instruction (the game needs AVX).
 
+**0.1.38 on the device (Hades save, HDS175/HDS200/HDS300 WADs):** 90,643 records in 109 s (no drops).
+Visibly broken textures (e.g. tex 109: a grey band over the top 22% of a roots texture) have NO traced
+write: no file read, memcpy/memmove/memset, GPU backing write, readback or DMA copy touched them. The guest
+store faults into live textures come from the game's texture tiler: Sony's GPU address library linked
+into the eboot (image base 0x7000104000; dispatcher around image offset 0x241fc3, error codes 0x80d3000x,
+bounds check `cmp rax,[r13+0x48]`; micro-tile writers 0x2e2a40/0x2e2ad0/0x2e2b60/0x2e2c90/0x2e2e80/
+0x2e3080/0x2e3210/0x2e33f0/0x2e3740/0x2e3c30 chosen by bits per element, 512-byte tiles with
+vmovups/vmovaps). So the bad bytes are written by the game's CPU tiling while the pages are not yet tracked.
+WAD comparison caveat: large textures (2048x2048) differ from a linear read of the WAD by a constant
+fraction (BC1 66.5%, BC3 80.5%) even when they look right, so the WADs store them in another layout; only
+smaller textures are a reliable byte-exact oracle (38 match exactly). Next: hook the tiler entry and log
+each call (destination, size, dimensions, pitch, format, buffer limit) to find overlapping destinations or
+sizes that differ from the texture cache's.
+
 **0.1.38 (diagnostics): write provenance trace.** `GOW3_WRITE_TRACE=1` records every write into guest memory
 with its source into `user/writes.bin` (48-byte records, runtime_memory.c `WriteRecord`; kinds in runtime.h
 `WTRACE_*`): write faults on tracked pages (guest RIP, or the host PC for runtime/GPU threads), file

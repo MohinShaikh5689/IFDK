@@ -30,12 +30,23 @@ def load_opens(log):
     return opens
 
 
-def describe(r, t0, fd_names):
+def file_names(recs, opens):
+    """seq of each file-read record -> the file its fd named at that moment."""
+    current, out = {}, {}
+    for r in recs[(recs['kind'] == 4) | (recs['kind'] == 5)]:
+        if int(r['kind']) == 5:
+            current[int(r['a'])] = opens.get(int(r['b']), '?')
+        else:
+            out[int(r['seq'])] = current.get(int(r['a']), 'fd %d' % int(r['a']))
+    return out
+
+
+def describe(r, t0, names_at):
     k = int(r['kind'])
     s = f"{(int(r['time']) - t0) / 1e9:9.3f}s thr {int(r['thread']):3d} {KINDS.get(k, k):16s} " \
         f"{int(r['address']):#x}+{int(r['size']):#x}"
     if k == 4:
-        s += f"  {fd_names.get(int(r['a']), 'fd %d' % int(r['a']))} @{int(r['b']):#x}"
+        s += f"  {names_at.get(int(r['seq']), 'fd %d' % int(r['a']))} @{int(r['b']):#x}"
     elif k in (6, 7):
         s += f"  src {int(r['a']):#x} caller {int(r['b']):#x}"
     elif k == 8:
@@ -60,9 +71,8 @@ def main():
           dict(collections.Counter(KINDS.get(int(k), int(k)) for k in recs['kind'])))
     t0 = int(recs['time'].min()) if len(recs) else 0
     opens = load_opens(log)
-    fd_names = {}  # last open per fd (good enough: reads follow their open)
-    for r in recs[recs['kind'] == 5]:
-        fd_names[int(r['a'])] = opens.get(int(r['b']), '?')
+    # fds are reused: name each read by the open that preceded it on that fd
+    names_at = file_names(recs, opens)
 
     man = {int(l.split()[0]): l.split() for l in open(os.path.join(dump, 'manifest.txt')) if l[0] != '#'}
     index = collections.defaultdict(list)
@@ -96,7 +106,7 @@ def main():
             hit = recs[(lo < b) & (hi > a)]
             print(f'  range {a:#x}..{b:#x} (tex+{a - base:#x}, {b - a} B): {len(hit)} writes')
             for r in hit[-6:]:
-                print('    ' + describe(r, t0, fd_names))
+                print('    ' + describe(r, t0, names_at))
 
 
 if __name__ == '__main__':
