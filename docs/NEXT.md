@@ -71,6 +71,13 @@ Fix") comes from a too small Video Arena; the phone already runs it at 2.25 GiB 
 0x90000000; direct mapping 2.39 GiB). Raised to 3.25 GiB (0xd0000000; mapping 3.39 GiB confirmed in the log):
 textures broken the same. Not arena pressure.
 
+**Other ports and game files (2026-10-24, no build):** SpartanPort 2.7.0 (PC) still has open, milder
+texture corruption after playing a while (#1015 striped floors/walls, #917, #1014); #331 (backing-write
+invalidation) is already in our code; #899 was a bad dump. The phone's game files match the user's Windows
+copy byte for byte (43 WADs; eboot.bin and both .plt are the 01.02 update). The PC launcher sets
+`GOW3_DEFERRED_READBACK=1`/`GOW3_STALE_READBACK=1` (gow3.ini defaults), iOS ran without them: with both on
+(log: "deferred image readback enabled"), textures broken the same.
+
 **0.1.39 (diagnostics): tiling check.** `GOW3_TILE_CHECK=1` routes the game's only call of Tiler1d
 (0x243bfb) through `runtime_tilecheck_tile1d` (src/tile_check.h, runtime_tilecheck.c), which per call logs to
 `user/tiles.txt` (problems also to the loader log): a file read still running into the source; the source
