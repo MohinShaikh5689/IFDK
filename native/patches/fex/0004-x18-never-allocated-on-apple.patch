@@ -1,0 +1,17 @@
+diff --git a/FEXCore/Source/Interface/Core/ArchHelpers/Arm64Emitter.cpp b/FEXCore/Source/Interface/Core/ArchHelpers/Arm64Emitter.cpp
+index 0cf5d2c..ccae290 100644
+--- a/FEXCore/Source/Interface/Core/ArchHelpers/Arm64Emitter.cpp
++++ b/FEXCore/Source/Interface/Core/ArchHelpers/Arm64Emitter.cpp
+@@ -88,8 +88,11 @@ namespace x64 {
+     ARMEmitter::Reg::r8, ARMEmitter::Reg::r16, ARMEmitter::Reg::r17,
+   };
+ 
+-#ifdef FEX_IOS_HOST
++#if defined(FEX_IOS_HOST) || defined(__APPLE__)
+   // On Apple platforms, x18 is reserved for platform TLS. Do not use it.
++  // gow3 (standalone FEXCore in an iOS app): FEX_IOS_HOST is only defined for Madeira's Windows
++  // modules, so without __APPLE__ here x18 stayed allocatable, and iOS zeroes it at any context
++  // switch (a translated `ldapur w5, [x18]` faulted at address 0).
+   constexpr std::array<ARMEmitter::Register, 6> RA = {
+     // All these callee saved
+     ARMEmitter::Reg::r20, ARMEmitter::Reg::r21, ARMEmitter::Reg::r22, ARMEmitter::Reg::r23,

@@ -3,6 +3,7 @@
 // L3/R3, Options and the touchpad. Their state goes to the pad code (runtime_pad.c, gow3_touch_pad)
 // and adds to a connected controller's. The launcher's switch decides whether they show; they hide
 // while a controller is connected, and the small button at the top shows or hides them in play.
+// A long press on that button edits the layout: drag a control, -/+ resize it, Reset, Done.
 import GameController
 import UIKit
 
@@ -22,10 +23,16 @@ private enum Pad {
 
 enum Gow3TouchControls {
   private static let key = "gow3.touchControls"
+  private static let layoutKey = "gow3.touchLayout"
   /// The launcher's switch: on until it is turned off.
   static var enabled: Bool {
     get { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
     set { UserDefaults.standard.set(newValue, forKey: key) }
+  }
+  /// Per control group: [x offset, y offset] as fractions of the screen, and a scale.
+  static var layout: [String: [Double]] {
+    get { UserDefaults.standard.dictionary(forKey: layoutKey) as? [String: [Double]] ?? [:] }
+    set { UserDefaults.standard.set(newValue, forKey: layoutKey) }
   }
 }
 
@@ -138,6 +145,17 @@ final class Gow3TouchControlsView: UIView {
   private let touchpad = PadButton("Touchpad", Pad.touchpad, size: 13)
   private lazy var buttons = [cross, circle, square, triangle, up, down, left, right, l1, l2, r1, r2, l3, r3, options, touchpad]
   private let toggle = UIButton(type: .system)
+  private let reset = UIButton(type: .system), smaller = UIButton(type: .system), larger = UIButton(type: .system)
+  /// The controls that move and resize together, by the name their layout is saved under.
+  private lazy var groups: [(String, [UIView])] = [
+    ("leftStick", [leftStick]), ("rightStick", [rightStick]), ("face", [cross, circle, square, triangle]),
+    ("dpad", [up, down, left, right]), ("l1", [l1]), ("l2", [l2]), ("r1", [r1]), ("r2", [r2]),
+    ("l3", [l3]), ("r3", [r3]), ("options", [options]), ("touchpad", [touchpad]),
+  ]
+  private var layout = Gow3TouchControls.layout
+  private var editing = false
+  private var selected: String?
+  private var drag: (touch: ObjectIdentifier, start: CGPoint, offset: [Double])?
   private var owners: [ObjectIdentifier: Owner] = [:]
   private var sent: (UInt32, UInt32) = (0, Pad.centered)
 
@@ -147,10 +165,18 @@ final class Gow3TouchControlsView: UIView {
   }
 
   private func applyShown() {
-    for control in (buttons as [UIView]) + [leftStick, rightStick] { control.isHidden = !shown }
-    toggle.setTitle(shown ? "Hide" : "Pad", for: .normal)
-    toggle.alpha = shown ? 0.8 : 0.4
-    if !shown { releaseAll() }
+    let visible = shown || editing
+    for control in (buttons as [UIView]) + [leftStick, rightStick] { control.isHidden = !visible }
+    for button in [reset, smaller, larger] { button.isHidden = !editing }
+    toggle.setTitle(editing ? "Done" : shown ? "Hide" : "Pad", for: .normal)
+    toggle.alpha = visible ? 0.8 : 0.4
+    for (name, members) in groups {
+      for member in members {
+        member.layer.borderColor = UIColor(white: 1, alpha: 0.35).cgColor
+        if editing { member.layer.borderColor = (name == selected ? UIColor.systemYellow : UIColor.systemTeal).cgColor }
+      }
+    }
+    if !shown || editing { releaseAll() }
   }
 
   override init(frame: CGRect) {
@@ -163,7 +189,18 @@ final class Gow3TouchControlsView: UIView {
     toggle.backgroundColor = UIColor(white: 0.1, alpha: 0.45)
     toggle.layer.cornerRadius = 8
     toggle.addTarget(self, action: #selector(flip), for: .touchUpInside)
+    toggle.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(edit(_:))))
     addSubview(toggle)
+    for (button, title, action) in [(reset, "Reset", #selector(resetLayout)), (smaller, "−", #selector(shrink)),
+                                    (larger, "+", #selector(grow))] {
+      button.setTitle(title, for: .normal)
+      button.titleLabel?.font = .systemFont(ofSize: 15, weight: .bold)
+      button.setTitleColor(.white, for: .normal)
+      button.backgroundColor = UIColor(white: 0.1, alpha: 0.6)
+      button.layer.cornerRadius = 8
+      button.addTarget(self, action: action, for: .touchUpInside)
+      addSubview(button)
+    }
     // Observers do not run for assignments in the initializer.
     shown = Gow3TouchControls.enabled && GCController.controllers().isEmpty
     applyShown()
@@ -174,7 +211,41 @@ final class Gow3TouchControlsView: UIView {
 
   required init?(coder: NSCoder) { fatalError() }
 
-  @objc private func flip() { shown.toggle() }
+  @objc private func flip() {
+    if editing {
+      editing = false
+      selected = nil
+      Gow3TouchControls.layout = layout
+      applyShown()
+    } else {
+      shown.toggle()
+    }
+  }
+
+  @objc private func edit(_ press: UILongPressGestureRecognizer) {
+    guard press.state == .began, !editing else { return }
+    editing = true
+    selected = nil
+    applyShown()
+  }
+
+  @objc private func resetLayout() {
+    layout = [:]
+    selected = nil
+    applyShown()
+    setNeedsLayout()
+  }
+
+  @objc private func shrink() { scaleSelected(by: -0.1) }
+  @objc private func grow() { scaleSelected(by: 0.1) }
+
+  private func scaleSelected(by step: Double) {
+    guard let name = selected else { return }
+    var entry = layout[name] ?? [0, 0, 1]
+    entry[2] = max(0.5, min(2.0, entry[2] + step))
+    layout[name] = entry
+    setNeedsLayout()
+  }
 
   /// A controller hides the controls; without one they come back (if the launcher's switch is on).
   @objc private func controllersChanged() {
@@ -223,19 +294,43 @@ final class Gow3TouchControlsView: UIView {
     touchpad.frame = CGRect(origin: CGPoint(x: w / 2 - 40 * s - pill.width, y: t), size: pill)
     options.frame = CGRect(origin: CGPoint(x: w / 2 + 40 * s, y: t), size: pill)
     toggle.frame = CGRect(x: w / 2 - 28 * s, y: t, width: 56 * s, height: 32 * s)
+    let tool = CGSize(width: 56 * s, height: 32 * s)
+    smaller.frame = CGRect(origin: CGPoint(x: w / 2 - 28 * s - 8 - tool.width, y: t + 40 * s), size: tool)
+    larger.frame = CGRect(origin: CGPoint(x: w / 2 + 28 * s + 8, y: t + 40 * s), size: tool)
+    reset.frame = CGRect(origin: CGPoint(x: w / 2 - tool.width / 2, y: t + 40 * s), size: tool)
+
+    // The saved layout: each group scaled about its center, then moved.
+    for (name, members) in groups {
+      guard let entry = layout[name], entry.count == 3 else { continue }
+      let box = members.map(\.frame).reduce(members[0].frame) { $0.union($1) }
+      let center = CGPoint(x: box.midX, y: box.midY), scale = CGFloat(entry[2])
+      let shift = CGPoint(x: CGFloat(entry[0]) * w, y: CGFloat(entry[1]) * h)
+      for member in members {
+        let f = member.frame
+        member.frame = CGRect(x: center.x + (f.minX - center.x) * scale + shift.x,
+                              y: center.y + (f.minY - center.y) * scale + shift.y,
+                              width: f.width * scale, height: f.height * scale)
+      }
+    }
   }
 
   /// Touches belong to this view only on a control (or near a stick), so the rest of the screen
   /// still reaches the game view's gestures.
   override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-    if toggle.frame.insetBy(dx: -8, dy: -8).contains(point) { return true }
+    if toggle.frame.insetBy(dx: -8, dy: -8).contains(point) || editing { return true }
     guard shown else { return false }
     return stickNear(point) != nil || button(at: point) != nil
   }
 
   override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
     guard self.point(inside: point, with: event) else { return nil }
-    return toggle.frame.insetBy(dx: -8, dy: -8).contains(point) ? toggle : self
+    if toggle.frame.insetBy(dx: -8, dy: -8).contains(point) { return toggle }
+    if editing, let tool = [reset, smaller, larger].first(where: { $0.frame.contains(point) }) { return tool }
+    return self
+  }
+
+  private func group(at point: CGPoint) -> String? {
+    groups.first { $0.1.contains { $0.frame.insetBy(dx: -6, dy: -6).contains(point) } }?.0
   }
 
   private func stickNear(_ point: CGPoint) -> PadStick? {
@@ -250,6 +345,14 @@ final class Gow3TouchControlsView: UIView {
   }
 
   override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+    if editing {
+      guard drag == nil, let touch = touches.first else { return }
+      let point = touch.location(in: self)
+      selected = group(at: point)
+      if let name = selected { drag = (ObjectIdentifier(touch), point, layout[name] ?? [0, 0, 1]) }
+      applyShown()
+      return
+    }
     for touch in touches {
       let point = touch.location(in: self)
       if let stick = stickNear(point), !owners.values.contains(where: { if case .stick(let s) = $0 { return s === stick } else { return false } }) {
@@ -263,6 +366,15 @@ final class Gow3TouchControlsView: UIView {
   }
 
   override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+    if editing {
+      guard let drag, let name = selected, let touch = touches.first(where: { ObjectIdentifier($0) == drag.touch }),
+            bounds.width > 0, bounds.height > 0 else { return }
+      let point = touch.location(in: self)
+      layout[name] = [drag.offset[0] + Double((point.x - drag.start.x) / bounds.width),
+                      drag.offset[1] + Double((point.y - drag.start.y) / bounds.height), drag.offset[2]]
+      setNeedsLayout()
+      return
+    }
     for touch in touches {
       switch owners[ObjectIdentifier(touch)] {
       case .stick(let stick):
@@ -278,6 +390,8 @@ final class Gow3TouchControlsView: UIView {
   }
 
   override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+    if let drag, touches.contains(where: { ObjectIdentifier($0) == drag.touch }) { self.drag = nil }
+    if editing { return }
     for touch in touches {
       if case .stick(let stick) = owners.removeValue(forKey: ObjectIdentifier(touch)) { stick.release() }
     }

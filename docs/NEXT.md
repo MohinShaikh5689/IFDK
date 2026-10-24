@@ -108,6 +108,14 @@ patches-600p.bin (also -480p/-720p/-1080p there), env.txt = "FPS test 3" with `G
 gow3.ini fps_limit=60. Next: install 0.1.44, check the on-screen controls, then profile the heavy opening
 (~2 min) and see whether a few shader pairs or every draw carry the ~27 ms main pass. Remove
 `GOW3_GPU_PROFILE` from env.txt for normal play (the profiler splits passes and costs FPS).
+**0.1.44 on the device:** the 0x199239 crash twice more, now with host details: `esr 0x92000006` (read,
+translation fault), `far 0x0`, instruction `99400245` = `ldapur w5, [x18]`. FEX allocated x18: its x18-free
+register list is behind `FEX_IOS_HOST`, which only Madeira's Windows modules define, and iOS zeroes x18 at
+context switches. 0.1.45: native/patches/fex/0004 takes the x18-free list on `__APPLE__` too. On-screen
+controls did nothing in the save/load list (and the settings menu): the overlay reads SDL gamepad events,
+not the pad state, so window_ios.mm replays the on-screen buttons to it as events. Also: layout editing
+(long press Hide/Pad: drag, -/+, Reset, Done; UserDefaults gow3.touchLayout) and an FPS cap button in the
+launcher (gow3.ini fps_limit: 60, 30, off).
 
 **FIXED (2026-10-24): texture corruption.** 0.1.40 showed every misplaced BC texture under large linear
 R32G32B32A32Uint storage images (4096x80..4096x160, the game's GPU texture moves, as SpartanPort #331 says),

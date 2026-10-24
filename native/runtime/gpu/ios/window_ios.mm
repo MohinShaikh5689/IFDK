@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <mutex>
 #include <thread>
+#include <utility>
 #import <QuartzCore/CAMetalLayer.h>
 #include <SDL3/SDL.h>
 #include "common/logging/log.h"
@@ -18,6 +19,53 @@ std::mutex g_surface_mutex;
 std::condition_variable g_surface_cv;
 CAMetalLayer* g_layer; // strong (ARC)
 u32 g_width, g_height, g_refresh_hz = 60;
+} // namespace
+
+// runtime_pad.c: the on-screen controls' buttons (libScePad bits).
+extern "C" uint32_t gow3_touch_buttons(void);
+
+namespace {
+// The on-screen buttons as gamepad events for the overlay (save list, settings menu, R3+L2), which
+// reads events only. L2/R2 are triggers, so they go as axis motion.
+void ReplayTouchButtons() {
+    static constexpr std::pair<uint32_t, SDL_GamepadButton> buttons[] = {
+        {0x4000, SDL_GAMEPAD_BUTTON_SOUTH},        {0x2000, SDL_GAMEPAD_BUTTON_EAST},
+        {0x8000, SDL_GAMEPAD_BUTTON_WEST},         {0x1000, SDL_GAMEPAD_BUTTON_NORTH},
+        {0x10, SDL_GAMEPAD_BUTTON_DPAD_UP},        {0x40, SDL_GAMEPAD_BUTTON_DPAD_DOWN},
+        {0x80, SDL_GAMEPAD_BUTTON_DPAD_LEFT},      {0x20, SDL_GAMEPAD_BUTTON_DPAD_RIGHT},
+        {0x400, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER}, {0x800, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER},
+        {0x2, SDL_GAMEPAD_BUTTON_LEFT_STICK},      {0x4, SDL_GAMEPAD_BUTTON_RIGHT_STICK},
+        {0x8, SDL_GAMEPAD_BUTTON_START},           {0x80000000u, SDL_GAMEPAD_BUTTON_BACK},
+    };
+    static constexpr std::pair<uint32_t, SDL_GamepadAxis> triggers[] = {
+        {0x100, SDL_GAMEPAD_AXIS_LEFT_TRIGGER}, {0x200, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER}};
+    static uint32_t last;
+    const uint32_t now = gow3_touch_buttons();
+    const uint32_t changed = now ^ last;
+    last = now;
+    if (!changed) {
+        return;
+    }
+    const u64 timestamp = SDL_GetTicksNS();
+    for (const auto& [bit, button] : buttons) {
+        if (!(changed & bit)) continue;
+        SDL_Event event{};
+        event.type = (now & bit) ? SDL_EVENT_GAMEPAD_BUTTON_DOWN : SDL_EVENT_GAMEPAD_BUTTON_UP;
+        event.gbutton.timestamp = timestamp;
+        event.gbutton.button = u8(button);
+        event.gbutton.down = (now & bit) != 0;
+        Gow3Overlay::HandleEvent(event);
+    }
+    for (const auto& [bit, axis] : triggers) {
+        if (!(changed & bit)) continue;
+        SDL_Event event{};
+        event.type = SDL_EVENT_GAMEPAD_AXIS_MOTION;
+        event.gaxis.timestamp = timestamp;
+        event.gaxis.axis = u8(axis);
+        event.gaxis.value = (now & bit) ? 32767 : 0;
+        Gow3Overlay::HandleEvent(event);
+    }
+}
 } // namespace
 
 extern "C" void gow3_gpu_set_surface(void* metal_layer, uint32_t width, uint32_t height,
@@ -96,6 +144,7 @@ bool WindowSDL::PollEvents() {
             Gow3Overlay::HandleEvent(event);
         }
     }
+    ReplayTouchButtons();
     std::this_thread::sleep_for(std::chrono::milliseconds(8));
     return is_open;
 }

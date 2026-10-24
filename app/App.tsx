@@ -13,6 +13,8 @@ type BuiltIn = Awaited<ReturnType<typeof Gow3Core.builtInJitStatus>>;
 const listControllers = () => (typeof Gow3Core.controllers === 'function' ? Gow3Core.controllers() : []);
 // The on-screen controls switch is new in 0.1.44; older installed IPAs lack it.
 const hasTouchControls = typeof Gow3Core.touchControlsEnabled === 'function';
+const hasFpsLimit = typeof Gow3Core.fpsLimit === 'function';
+const FPS_LIMITS = [60, 30, 0];
 
 function pretty(json: string): string {
   try {
@@ -42,6 +44,7 @@ export default function App() {
   const [files, setFiles] = useState(() => Gow3Core.gameFiles());
   const [gameLog, setGameLog] = useState(() => Gow3Core.readGameLog());
   const [gpuReport, setGpuReport] = useState('');
+  const [fpsLimit, setFpsLimit] = useState(() => (hasFpsLimit ? Gow3Core.fpsLimit() : 60));
   const [touchControls, setTouchControls] = useState(() => (hasTouchControls ? Gow3Core.touchControlsEnabled() : false));
 
   const refresh = useCallback(() => {
@@ -202,6 +205,16 @@ export default function App() {
             onPress={() => run(() => Gow3Core.startGame())}
             disabled={busy || files.started || !files.boot || !files.eboot}
           />
+          {hasFpsLimit ? (
+            <Button
+              title={`FPS cap: ${fpsLimit ? fpsLimit : 'off'}${files.started ? ' (next start)' : ''}`}
+              onPress={() => {
+                const next = FPS_LIMITS[(FPS_LIMITS.indexOf(fpsLimit) + 1) % FPS_LIMITS.length];
+                Gow3Core.setFpsLimit(next);
+                setFpsLimit(next);
+              }}
+            />
+          ) : null}
           {hasTouchControls ? (
             <Button
               title={`On-screen controls: ${touchControls ? 'on' : 'off'}`}

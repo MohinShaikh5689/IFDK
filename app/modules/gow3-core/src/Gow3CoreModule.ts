@@ -29,6 +29,9 @@ declare class Gow3CoreModule extends NativeModule<{}> {
   startGameCpuOnly(): Promise<string>;
   /** Runs the game with graphics in a fullscreen Metal view (two-finger double tap hides it). */
   startGame(): Promise<string>;
+  /** Frame cap in gow3.ini (30, 60, or 0 for none), read when the game starts. */
+  fpsLimit(): number;
+  setFpsLimit(limit: number): void;
   /** On-screen controls at game start (they hide while a controller is connected; a button in game toggles them). */
   touchControlsEnabled(): boolean;
   setTouchControlsEnabled(enabled: boolean): void;

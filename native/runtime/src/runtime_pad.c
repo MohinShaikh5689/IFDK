@@ -213,6 +213,9 @@ void gow3_touch_pad(uint32_t buttons, uint32_t sticks) {
     __atomic_store_n(&touch_buttons,buttons,__ATOMIC_RELAXED);
     __atomic_store_n(&touch_sticks,sticks,__ATOMIC_RELAXED);
 }
+/* For the window code (gpu/ios/window_ios.mm): the save list and the settings menu take gamepad
+ * events, not the sampled state, so the on-screen buttons are replayed to them as events. */
+uint32_t gow3_touch_buttons(void) { return __atomic_load_n(&touch_buttons,__ATOMIC_RELAXED); }
 static void key_axis(uint8_t *axis, bool negative, bool positive) {
     if (negative || positive) *axis=(uint8_t)(128-(negative ? 128 : 0)+(positive ? 127 : 0));
 }

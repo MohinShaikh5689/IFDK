@@ -447,6 +447,31 @@ public class Gow3CoreModule: Module {
       }
     }.runOnQueue(.main)
 
+    /// The frame cap in Documents/gow3/user/gow3.ini (the in-game menu's setting, read at game start):
+    /// 30 or 60, 0 for none. The iOS default is 60.
+    Function("fpsLimit") { () -> Int in
+      let ini = Gow3CoreModule.gameRoot.appendingPathComponent("user/gow3.ini")
+      let text = (try? String(contentsOf: ini, encoding: .utf8)) ?? ""
+      for line in text.split(separator: "\n") where line.hasPrefix("fps_limit=") {
+        return Int(line.dropFirst("fps_limit=".count).trimmingCharacters(in: .whitespaces)) ?? 60
+      }
+      return 60
+    }
+
+    Function("setFpsLimit") { (limit: Int) in
+      let ini = Gow3CoreModule.gameRoot.appendingPathComponent("user/gow3.ini")
+      var lines = ((try? String(contentsOf: ini, encoding: .utf8)) ?? "").split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+      if let at = lines.firstIndex(where: { $0.hasPrefix("fps_limit=") }) {
+        lines[at] = "fps_limit=\(limit)"
+      } else {
+        if lines.last == "" { lines.removeLast() }
+        lines.append("fps_limit=\(limit)")
+        lines.append("")
+      }
+      try? FileManager.default.createDirectory(at: ini.deletingLastPathComponent(), withIntermediateDirectories: true)
+      try? lines.joined(separator: "\n").write(to: ini, atomically: true, encoding: .utf8)
+    }
+
     /// The launcher's switch for the on-screen controls (they also hide while a controller is connected).
     Function("touchControlsEnabled") { () -> Bool in
       Gow3TouchControls.enabled
