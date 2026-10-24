@@ -13,7 +13,7 @@ import numpy as np
 
 KINDS = {1: 'fault guest', 2: 'fault host-call', 3: 'fault host', 4: 'file read', 5: 'open',
          6: 'memcpy', 7: 'memmove', 8: 'memset', 9: 'gpu backing', 10: 'dma copy cpu',
-         11: 'dma copy gpu', 12: 'dma fill', 13: 'tiler'}
+         11: 'dma copy gpu', 12: 'dma fill', 13: 'tiler', 14: 'gpu buffer write', 15: 'gpu image write'}
 BACKING_SITES = {1: 'WriteData', 2: 'fence/EOP', 3: 'buffer download', 4: 'readback entry',
                  5: 'deferred readback', 6: 'image readback', 7: 'image download (GC)',
                  8: 'image download (deferred)'}
@@ -53,6 +53,8 @@ def describe(r, t0, names_at):
         s += f"  value {int(r['a'])} caller {int(r['b']):#x}"
     elif k == 9:
         s += f"  {BACKING_SITES.get(int(r['a']), int(r['a']))}{'' if int(r['b']) else ' (not written)'}"
+    elif k == 15:
+        s += f"  format {int(r['a'])} {chr(int(r['b'])) if 32 < int(r['b']) < 127 else int(r['b'])}"
     elif k == 13:
         s += f"  src {int(r['a']):#x} tiling #{int(r['b'])}"
     elif k in (10, 11):

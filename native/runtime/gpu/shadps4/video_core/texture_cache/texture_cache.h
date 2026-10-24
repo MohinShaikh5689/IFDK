@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <cstring>
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -79,10 +81,16 @@ public:
         bool needs_native{true};
 
         ImageDesc() = default;
+        /// gow3 (GOW3_TILE_CHECK): the T# this description came from, for the misplaced
+        /// texture report (FindImage).
+        std::array<u32, 8> tsharp{};
+
         ImageDesc(const AmdGpu::Image& image, const Shader::ImageResource& desc)
             : info{image, desc}, view_info{image, desc},
               type{desc.is_written ? BindingType::Storage : BindingType::Texture},
-              needs_native{desc.needs_native} {}
+              needs_native{desc.needs_native} {
+            std::memcpy(tsharp.data(), &image, sizeof(tsharp));
+        }
         ImageDesc(const AmdGpu::ColorBuffer& buffer, AmdGpu::CbDbExtent hint)
             : info{buffer, hint}, view_info{buffer}, type{BindingType::RenderTarget} {}
         ImageDesc(const AmdGpu::DepthBuffer& buffer, AmdGpu::DepthView view,
@@ -529,6 +537,10 @@ private:
     std::mutex mutex;
     /// gow3 (#138): under `mutex`. GPU-modified images hold the written data themselves.
     void ApplyBackingWrites();
+    /// gow3 (GOW3_TILE_CHECK): a new texture at an address where the game never tiled one, inside
+    /// another tiling. Logs it with the images over it; the dump adds those images.
+    void ReportMisplaced(const ImageDesc& desc, const char* tiling, const std::string& overlaps);
+    std::vector<std::pair<VAddr, u64>> misplaced_ranges;
     std::mutex backing_writes_mutex;
     std::vector<std::pair<VAddr, u64>> backing_writes;
     std::atomic<bool> has_backing_writes{false};

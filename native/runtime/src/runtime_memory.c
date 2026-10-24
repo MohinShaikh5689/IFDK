@@ -845,7 +845,8 @@ static void *toggle_watcher(void *path) {
     return NULL;
 }
 /* ---- Write provenance trace (runtime.h) ---- */
-_Static_assert(WTRACE_BACKING==9 && WTRACE_DMA_COPY_CPU==10 && WTRACE_DMA_COPY_GPU==11 && WTRACE_DMA_FILL==12,
+_Static_assert(WTRACE_BACKING==9 && WTRACE_DMA_COPY_CPU==10 && WTRACE_DMA_COPY_GPU==11 && WTRACE_DMA_FILL==12 &&
+               WTRACE_GPU_BUFFER_WRITE==14 && WTRACE_GPU_IMAGE_WRITE==15,
                "gpu/shim/gow3_wtrace.h mirrors these values");
 typedef struct { uint64_t seq, time_ns, address, a, b; uint32_t size; uint16_t kind, thread; } WriteRecord;
 enum { WTRACE_SLOTS=1<<20 };
@@ -1001,6 +1002,18 @@ int runtime_memory_is_mapped(uintptr_t address, uint64_t size) {
     int result=covered(address,address+size,0);
     read_unlock();
     return result;
+}
+/* The guest mappings (reservations left out), at most max: for scans outside the lock
+ * (runtime_tilecheck.c), which must read them as memory that may go away. */
+size_t runtime_memory_mappings(uintptr_t *starts, uint64_t *sizes, size_t max) {
+    read_lock();
+    size_t n=0;
+    for (size_t i=0;i<vma_count && n<max;++i) {
+        if (vmas[i].kind==KIND_RESERVED) continue;
+        starts[n]=vmas[i].start; sizes[n]=vmas[i].end-vmas[i].start; ++n;
+    }
+    read_unlock();
+    return n;
 }
 void runtime_memory_report(void) {
     printf("Runtime: direct memory allocations=%zu, maps=%zu, live=%" PRIu64 ", budget=%" PRIu64 "\n",

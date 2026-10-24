@@ -71,6 +71,16 @@ Fix") comes from a too small Video Arena; the phone already runs it at 2.25 GiB 
 0x90000000; direct mapping 2.39 GiB). Raised to 3.25 GiB (0xd0000000; mapping 3.39 GiB confirmed in the log):
 textures broken the same. Not arena pressure.
 
+**0.1.40 (diagnostics): misplaced textures.** With `GOW3_TILE_CHECK=1`, `FindImage` reports each new BC texture
+whose address is inside a tiling but where none started (`runtime_tilecheck_classify` == 2): "Misplaced
+texture: ..." with its raw T#, the tiling it lies in, whether the buffer cache holds GPU writes there, and every
+cached image over it (format, size, flags, usage). A searcher thread then finds copies of that T# in resident
+guest memory (mincore + memmem) and logs 192 bytes around each ("T# of ...: N copies"). With
+`GOW3_WRITE_TRACE=1` GPU writes are traced too: buffers bound for shader writes (kind 14) and images bound
+as render/depth/storage targets (kind 15). The dump adds the images over misplaced textures. 31 of the 109
+misplaced textures in 0.1.39 sit ~128 MiB above a same-shape texture tiled earlier (control offsets: 0-2),
+as if the game moved them in its pool and the data never followed.
+
 **0.1.39 on the device (Hades save; dump_0 with 186 textures, tiles.txt, writes.bin):** 10,826 tilings, 0
 wrong, 0 sources differing from the file, 0 reads in flight, 0 same file bytes twice. `native/scripts/
 tilecheck.py` rebuilds each tiled range from the game file and compares with the dump: 76 BC textures are

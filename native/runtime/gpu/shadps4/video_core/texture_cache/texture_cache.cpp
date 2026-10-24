@@ -9,6 +9,7 @@
 #include "video_core/amdgpu/liverpool.h"
 
 #include "gow3_toggles.h"
+#include "gow3_wtrace.h"
 #include "common/assert.h"
 #include "common/debug.h"
 #include "common/div_ceil.h"
@@ -1138,6 +1139,30 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_fmt) {
     created.needs_native = desc.needs_native;
     created.tile = static_cast<u32>(info.tile_mode);
 
+    // gow3 (GOW3_TILE_CHECK): a compressed texture where no tiling started but inside one that
+    // did is read from another texture's memory; the images over it are described before overlap
+    // resolution may free them.
+    char misplaced_in[256] = "";
+    std::string overlaps;
+    const bool misplaced = !image_id && runtime_tilecheck_enabled && desc.type == BindingType::Texture &&
+                           info.props.is_block &&
+                           runtime_tilecheck_classify(info.guest_address, misplaced_in,
+                                                      sizeof(misplaced_in)) == 2;
+    if (misplaced) {
+        for (const auto& id : image_ids) {
+            const auto& other = slot_images[id];
+            char line[200];
+            std::snprintf(line, sizeof(line), " [%#llx+%#llx %s %ux%u mips %u flags %#x usage %c%c%c]",
+                          static_cast<unsigned long long>(other.info.guest_address),
+                          static_cast<unsigned long long>(other.info.guest_size),
+                          vk::to_string(other.info.pixel_format).c_str(), other.info.size.width,
+                          other.info.size.height, other.info.resources.levels, u32(other.flags),
+                          other.usage.texture ? 't' : '-', other.usage.storage ? 's' : '-',
+                          other.usage.render_target ? 'r' : '-');
+            overlaps += line;
+        }
+    }
+
     // Try to resolve overlaps (if any)
     int view_mip{-1};
     int view_slice{-1};
@@ -1175,6 +1200,9 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_fmt) {
     if (!image_id) {
         image_id = slot_images.insert(instance, runtime, slot_image_views, info);
         RegisterImage(image_id);
+        if (misplaced) {
+            ReportMisplaced(desc, misplaced_in, overlaps);
+        }
         if (diag) {
             ++images_created;
             const auto same = [&](const CreateStat& s) {
@@ -1224,6 +1252,30 @@ ImageId TextureCache::FindImage(ImageDesc& desc, bool exact_fmt) {
     return image_id;
 }
 
+void TextureCache::ReportMisplaced(const ImageDesc& desc, const char* tiling,
+                                   const std::string& overlaps) {
+    const auto& info = desc.info;
+    if (misplaced_ranges.size() < 4096) {
+        misplaced_ranges.emplace_back(info.guest_address, info.guest_size);
+    }
+    static std::atomic<u32> reported{0};
+    if (reported.fetch_add(1, std::memory_order_relaxed) >= 200) {
+        return;
+    }
+    const auto& t = desc.tsharp;
+    std::printf("Misplaced texture: %#llx+%#llx %s %ux%u mips %u, tick %llu; inside tiling %s; GPU "
+                "buffer written there: %s; T# %08x %08x %08x %08x %08x %08x %08x %08x; %zu images "
+                "over it:%s\n",
+                static_cast<unsigned long long>(info.guest_address),
+                static_cast<unsigned long long>(info.guest_size),
+                vk::to_string(info.pixel_format).c_str(), info.size.width, info.size.height,
+                info.resources.levels, static_cast<unsigned long long>(scheduler.CurrentTick()),
+                tiling, buffer_cache.IsRegionGpuModified(info.guest_address, info.guest_size) ? "yes" : "no",
+                t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7],
+                static_cast<size_t>(std::count(overlaps.begin(), overlaps.end(), '[')), overlaps.c_str());
+    runtime_tilecheck_find_descriptor(t.data(), info.guest_address);
+}
+
 ImageId TextureCache::FindImageFromRange(VAddr address, size_t size, bool ensure_valid) {
     ImageIds image_ids;
     ForEachImageInRegion(address, size, [&](ImageId image_id, Image& image) {
@@ -1259,6 +1311,10 @@ ImageView& TextureCache::FindTexture(ImageId image_id, const ImageDesc& desc, Vi
     Image& image = slot_images[image_id];
     if (desc.type == BindingType::Storage) {
         image.flags |= ImageFlagBits::GpuModified;
+        if (runtime_wtrace_enabled) {
+            runtime_wtrace(Gow3WriteTrace::GpuImageWrite, image.info.guest_address,
+                           image.info.guest_size, u64(image.info.pixel_format), 's');
+        }
         if (readback_linear_images && (!image.info.props.is_tiled || image.info.size.width <= 8) &&
             image.info.guest_address != 0) {
             std::unique_lock lk{download_images_mutex};
@@ -1290,6 +1346,10 @@ ImageView& TextureCache::FindTexture(ImageId image_id, const ImageDesc& desc, Vi
 ImageView& TextureCache::FindRenderTarget(ImageId image_id, const ImageDesc& desc) {
     Image& image = slot_images[image_id];
     image.flags |= ImageFlagBits::GpuModified;
+    if (runtime_wtrace_enabled) {
+        runtime_wtrace(Gow3WriteTrace::GpuImageWrite, image.info.guest_address,
+                       image.info.guest_size, u64(image.info.pixel_format), 'r');
+    }
     if (readback_linear_images && (!image.info.props.is_tiled || image.info.size.width <= 8)) {
         std::unique_lock lk{download_images_mutex};
         download_images.emplace(image_id);
@@ -1317,6 +1377,10 @@ ImageView& TextureCache::FindRenderTarget(ImageId image_id, const ImageDesc& des
 ImageView& TextureCache::FindDepthTarget(ImageId image_id, const ImageDesc& desc) {
     Image& image = slot_images[image_id];
     image.flags |= ImageFlagBits::GpuModified;
+    if (runtime_wtrace_enabled) {
+        runtime_wtrace(Gow3WriteTrace::GpuImageWrite, image.info.guest_address,
+                       image.info.guest_size, u64(image.info.pixel_format), 'd');
+    }
     image.usage.depth_target = 1u;
     UpdateImage(image_id);
 
@@ -1955,8 +2019,14 @@ void TextureCache::DumpOnTrigger() {
     lru_cache.ForEachItemBelow(gc_tick, [&](ImageId image_id) {
         Image& image = slot_images[image_id];
         const auto& info = image.info;
-        if (False(image.flags & ImageFlagBits::Registered) || !image.usage.texture ||
-            image.lru_touched_tick + 2 < gc_tick || info.props.is_depth ||
+        // gow3: also images over a misplaced texture (GOW3_TILE_CHECK), whatever their use.
+        const bool over_misplaced = std::ranges::any_of(misplaced_ranges, [&](const auto& r) {
+            return info.guest_address < r.first + r.second &&
+                   r.first < info.guest_address + info.guest_size;
+        });
+        if (False(image.flags & ImageFlagBits::Registered) ||
+            (!image.usage.texture && !over_misplaced) ||
+            (image.lru_touched_tick + 2 < gc_tick && !over_misplaced) || info.props.is_depth ||
             info.num_samples > 1 || info.num_bits == 0 || info.guest_address == 0) {
             return false;
         }

@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <magic_enum/magic_enum.hpp>
 #include "gow3_copy.h"
+#include "gow3_wtrace.h"
 #include "gow3_toggles.h"
 #include "common/alignment.h"
 #include "core/memory.h"
@@ -369,6 +370,9 @@ std::pair<const Buffer*, u64> BufferCache::ObtainBuffer(VAddr device_addr, u32 s
     }
     if (is_written) {
         gpu_modified_ranges.Add(device_addr, size);
+        if (runtime_wtrace_enabled) {
+            runtime_wtrace(Gow3WriteTrace::GpuBufferWrite, device_addr, size, is_texel_buffer, 0);
+        }
     }
     return {arena, arena->Offset(device_addr)};
 }

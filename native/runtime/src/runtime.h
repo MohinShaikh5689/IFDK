@@ -37,6 +37,7 @@ void runtime_mutex_report(void);
 uintptr_t runtime_memory_resolve(const char *name);
 void runtime_memory_report(void);
 int runtime_memory_is_mapped(uintptr_t address, uint64_t size);
+size_t runtime_memory_mappings(uintptr_t *starts, uint64_t *sizes, size_t max);
 /* Write provenance trace (GOW3_WRITE_TRACE=1, file GOW3_WRITE_TRACE_FILE): one record per write
  * into guest memory from each source, to find the write that puts texture data in the wrong place.
  * Safe in signal handlers (lock-free ring, drained by a writer thread). */
@@ -52,6 +53,8 @@ enum {
     WTRACE_DMA_COPY_CPU, WTRACE_DMA_COPY_GPU, /* a: source */
     WTRACE_DMA_FILL, /* a: value, b: 1 if on the GPU */
     WTRACE_TILE, /* the game's 1D tiler (runtime_tilecheck.c); a: source, b: call number */
+    WTRACE_GPU_BUFFER_WRITE, /* a buffer bound for shader writes (buffer cache) */
+    WTRACE_GPU_IMAGE_WRITE, /* an image bound as render, depth or storage target; a: format, b: kind */
 };
 extern int runtime_wtrace_enabled;
 void runtime_wtrace(unsigned kind, uintptr_t address, uint64_t size, uint64_t a, uint64_t b);

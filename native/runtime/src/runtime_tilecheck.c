@@ -21,6 +21,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/mman.h>
 
 int runtime_tilecheck_enabled;
 static uintptr_t tiler_entry, image_base;
@@ -36,7 +37,7 @@ static Read reads[READS];
 static uint64_t read_count;
 static struct { uintptr_t address; uint64_t size; } flight[FLIGHT];
 typedef struct {
-    uintptr_t lo, hi, src;
+    uintptr_t lo, hi, src, dst;
     uint64_t hash, call;
     int64_t offset;
     uint32_t file;
@@ -316,7 +317,7 @@ ABI uint64_t runtime_tilecheck_tile1d(uint64_t tiler, uint64_t dst, uint64_t src
                                      e->call, e->lo, e->time);
         }
     }
-    tiles[call % TILES] = (Tile){lo, hi, src, dst_hash, call, read.file ? read.offset : -1, read.file, 0, time};
+    tiles[call % TILES] = (Tile){lo, hi, src, dst, dst_hash, call, read.file ? read.offset : -1, read.file, 0, time};
     pthread_mutex_unlock(&lock);
     if (overlaps) __atomic_add_fetch(&stats.overlaps, 1, __ATOMIC_RELAXED);
     if (retiled) __atomic_add_fetch(&stats.retiled, 1, __ATOMIC_RELAXED);
@@ -341,6 +342,130 @@ ABI uint64_t runtime_tilecheck_tile1d(uint64_t tiler, uint64_t dst, uint64_t src
            source, tiling, flying ? " | READ IN FLIGHT into the source" : "",
            src_changed ? " | SOURCE CHANGED during tiling" : "", also, retiled);
     return result;
+}
+
+static const char *base_name(const char *path) {
+    const char *slash = strrchr(path, '/');
+    return slash ? slash + 1 : path;
+}
+
+int runtime_tilecheck_classify(uintptr_t address, char *info, size_t size) {
+    if (!runtime_tilecheck_enabled) return 0;
+    const Tile *inside = NULL;
+    int started = 0;
+    pthread_mutex_lock(&lock);
+    for (unsigned i = 0; i < TILES; ++i) {
+        const Tile *e = &tiles[i];
+        if (!e->call) continue;
+        if (e->dst == address) started = 1;
+        if (e->lo <= address && address < e->hi && (!inside || e->call > inside->call)) inside = e;
+    }
+    if (info && size) {
+        info[0] = 0;
+        if (inside) {
+            snprintf(info, size, "#%" PRIu64 " at %.3f: dst %#" PRIxPTR " [%#" PRIxPTR "..%#" PRIxPTR "] (+%#" PRIxPTR "), file %s @%#" PRIx64,
+                     inside->call, inside->time, inside->dst, inside->lo, inside->hi, address - inside->lo,
+                     inside->file && paths[inside->file % PATHS] ? base_name(paths[inside->file % PATHS]) : "-",
+                     (uint64_t)inside->offset);
+        }
+    }
+    pthread_mutex_unlock(&lock);
+    return started ? 1 : inside ? 2 : 0;
+}
+
+/* Copies of a texture's T# in guest memory: the game's own texture record and the command
+ * buffers it was written to. Searched on a thread of its own, resident pages only (mincore), so the
+ * scan neither stalls the GPU thread nor faults in the sparse pool. */
+enum { SEARCHES = 24, MAPPINGS = 8192 };
+static struct { uint32_t t[8]; uintptr_t texture; } searches[SEARCHES];
+static unsigned search_head, search_tail, searches_queued;
+static pthread_cond_t search_wake = PTHREAD_COND_INITIALIZER;
+
+static void hexdump(char *out, size_t size, uintptr_t address, unsigned bytes) {
+    size_t used = 0;
+    uint32_t w[64];
+    sigjmp_buf recover;
+    out[0] = 0;
+    if (sigsetjmp(recover, 1)) return;
+    runtime_fault_recover = &recover;
+    memcpy(w, (const void *)address, bytes);
+    runtime_fault_recover = NULL;
+    for (unsigned i = 0; i < bytes / 4 && used + 10 < size; ++i)
+        used += (size_t)snprintf(out + used, size - used, "%s%08x", i % 8 ? " " : (i ? " | " : ""), w[i]);
+}
+
+static void search(const uint32_t t[8], uintptr_t texture) {
+    static uintptr_t starts[MAPPINGS];
+    static uint64_t sizes[MAPPINGS];
+    const size_t n = runtime_memory_mappings(starts, sizes, MAPPINGS);
+    const long page = sysconf(_SC_PAGESIZE);
+    enum { CHUNK = 1 << 26 };
+    static unsigned char vec[CHUNK / 4096 + 1];
+    uintptr_t hits[12];
+    unsigned found = 0;
+    uint64_t scanned = 0;
+    for (size_t m = 0; m < n && found < 12; ++m) {
+        for (uint64_t at = 0; at < sizes[m] && found < 12; at += CHUNK) {
+            const uintptr_t base = starts[m] + at;
+            const uint64_t len = sizes[m] - at < CHUNK ? sizes[m] - at : CHUNK;
+            if (mincore((void *)base, len, (void *)vec)) continue;
+            for (uint64_t p = 0; p < len && found < 12;) {
+                if (!(vec[p / page] & 1)) { p += page; continue; }
+                uint64_t q = p;
+                while (q < len && (vec[q / page] & 1)) q += page;
+                if (q > len) q = len;
+                sigjmp_buf recover;
+                if (!sigsetjmp(recover, 1)) {
+                    runtime_fault_recover = &recover;
+                    const unsigned char *from = (const unsigned char *)(base + p), *end = (const unsigned char *)(base + q);
+                    while (from + 16 <= end && found < 12) {
+                        const unsigned char *hit = memmem(from, (size_t)(end - from), t, 16);
+                        if (!hit) break;
+                        if (((uintptr_t)hit & 3) == 0) hits[found++] = (uintptr_t)hit;
+                        from = hit + 4;
+                    }
+                    scanned += q - p;
+                }
+                runtime_fault_recover = NULL;
+                p = q;
+            }
+        }
+    }
+    char line[2048];
+    report(1, "T# of %#" PRIxPTR " (%08x %08x %08x %08x %08x %08x %08x %08x): %u copies in %.0f MB of resident guest memory\n",
+           texture, t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7], found, scanned / 1048576.0);
+    for (unsigned i = 0; i < found; ++i) {
+        hexdump(line, sizeof(line), hits[i] - 64, 192);
+        report(1, "  copy at %#" PRIxPTR ": -64.. %s\n", hits[i], line);
+    }
+}
+
+static void *searcher(void *unused) {
+    (void)unused;
+    for (;;) {
+        pthread_mutex_lock(&lock);
+        while (search_head == search_tail) pthread_cond_wait(&search_wake, &lock);
+        uint32_t t[8];
+        memcpy(t, searches[search_tail % SEARCHES].t, sizeof(t));
+        const uintptr_t texture = searches[search_tail % SEARCHES].texture;
+        ++search_tail;
+        pthread_mutex_unlock(&lock);
+        search(t, texture);
+    }
+    return NULL;
+}
+
+void runtime_tilecheck_find_descriptor(const uint32_t tsharp[8], uintptr_t texture) {
+    if (!runtime_tilecheck_enabled) return;
+    pthread_mutex_lock(&lock);
+    if (searches_queued < SEARCHES) {
+        ++searches_queued;
+        memcpy(searches[search_head % SEARCHES].t, tsharp, sizeof(searches[0].t));
+        searches[search_head % SEARCHES].texture = texture;
+        ++search_head;
+        pthread_cond_signal(&search_wake);
+    }
+    pthread_mutex_unlock(&lock);
 }
 
 /* Hashes every tiled range again; the first change of each is reported. */
@@ -392,5 +517,7 @@ void runtime_tilecheck_start(uintptr_t tiler, uintptr_t image) {
     printf("Tile check: 1D tiler at %#" PRIxPTR " checked, log %s\n", tiler, out ? (path && *path ? path : "tiles.txt") : "(cannot write)");
     pthread_t thread;
     pthread_create(&thread, NULL, watcher, NULL);
+    pthread_detach(thread);
+    pthread_create(&thread, NULL, searcher, NULL);
     pthread_detach(thread);
 }
