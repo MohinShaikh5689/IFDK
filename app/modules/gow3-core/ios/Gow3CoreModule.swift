@@ -213,6 +213,9 @@ public class Gow3CoreModule: Module {
     // GOW3_WRITE_TRACE=1 in env.txt: every write into guest memory with its source, to this file
     // (runtime_memory.c; the corruption hunt pairs it with a texture dump).
     setenv("GOW3_WRITE_TRACE_FILE", root.appendingPathComponent("user/writes.bin").path, 0)
+    // GOW3_TILE_CHECK=1 in env.txt: every texture the game tiles, checked against its source and
+    // the game file (runtime_tilecheck.c), logged here.
+    setenv("GOW3_TILE_LOG", root.appendingPathComponent("user/tiles.txt").path, 0)
     excludeGameFilesFromBackup()
     let log = gameLogURL.path
     watchThermalState(log: log)

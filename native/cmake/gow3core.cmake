@@ -35,6 +35,7 @@ add_library(gow3runtime STATIC
   "${GOW3_RUNTIME}/src/runtime_savedata.c"
   "${GOW3_RUNTIME}/src/runtime_sema.c"
   "${GOW3_RUNTIME}/src/runtime_services.c"
+  "${GOW3_RUNTIME}/src/runtime_tilecheck.c"
   "${GOW3_RUNTIME}/src/runtime_thread.c"
   "${GOW3_RUNTIME}/src/runtime_time.c"
   "${GOW3_RUNTIME}/src/compat_darwin.c"

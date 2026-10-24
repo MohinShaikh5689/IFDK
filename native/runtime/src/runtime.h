@@ -51,9 +51,18 @@ enum {
     WTRACE_BACKING, /* GPU write through the backing view; a: call site, b: 1 if written */
     WTRACE_DMA_COPY_CPU, WTRACE_DMA_COPY_GPU, /* a: source */
     WTRACE_DMA_FILL, /* a: value, b: 1 if on the GPU */
+    WTRACE_TILE, /* the game's 1D tiler (runtime_tilecheck.c); a: source, b: call number */
 };
 extern int runtime_wtrace_enabled;
 void runtime_wtrace(unsigned kind, uintptr_t address, uint64_t size, uint64_t a, uint64_t b);
+/* Tiling check (GOW3_TILE_CHECK=1, runtime_tilecheck.c): the file reads it compares the tiler's
+ * sources with. host_path is the file's host path. */
+extern int runtime_tilecheck_enabled;
+void runtime_tilecheck_open(int fd, const char *host_path);
+void runtime_tilecheck_read(int fd, const void *buffer, uint64_t size, int64_t offset);
+/* Around each read into guest memory: a read still running when the tiler uses its buffer. */
+int runtime_tilecheck_read_begin(const void *buffer, uint64_t size);
+void runtime_tilecheck_read_end(int slot);
 const char *runtime_import_name(const char *name);
 uintptr_t runtime_rwlock_resolve(const char *name);
 void runtime_rwlock_report(void);

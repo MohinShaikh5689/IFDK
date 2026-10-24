@@ -14,6 +14,7 @@
 #include "cheat_hook.h"
 #include "actor_hook.h"
 #include "damage_hook.h"
+#include "tile_check.h"
 #include "gpu/gow3gpu.h"
 #ifdef __APPLE__
 /* native/cpu/guest_cpu_fex_darwin.cpp: the last host calls made by guest code (fault report). */
@@ -681,6 +682,32 @@ static int install_jump(uint64_t at, unsigned length, unsigned char *stub) {
     return 1;
 }
 
+/* GOW3_TILE_CHECK=1: the game's 1D tiler is called through runtime_tilecheck_tile1d, which runs
+ * it and checks the result (src/tile_check.h, runtime_tilecheck.c). */
+static void install_tile_check(Segment *segments, uint64_t count, uint64_t size) {
+    const char *env = getenv("GOW3_TILE_CHECK");
+    if (!env || env[0] != '1') return;
+    const uint64_t call = gow3_signature_find(image, size, &gow3_tile1d_call_site);
+    const uint64_t entry = gow3_signature_find(image, size, &gow3_tile1d_entry);
+    int32_t relative;
+    if (call == UINT64_MAX || entry == UINT64_MAX || !mapped(segments, count, call, 5) ||
+        (memcpy(&relative, image + call + 1, 4), (int64_t)call + 5 + relative != (int64_t)entry)) {
+        printf("Tile check: unavailable (tiler not found in this eboot.bin)\n");
+        return;
+    }
+    unsigned char *stub = allocate(page_size);
+    gow3_tile1d_build_stub(stub, guest_cpu_host_function((void *)runtime_tilecheck_tile1d));
+    const int64_t delta = (int64_t)(uintptr_t)stub - (int64_t)(uintptr_t)(image + call + 5);
+    if (delta < INT32_MIN || delta > INT32_MAX) {
+        printf("Tile check: unavailable (stub outside relative-call range)\n");
+        return;
+    }
+    protect_code(stub, page_size);
+    relative = (int32_t)delta;
+    memcpy(image + call + 1, &relative, 4);
+    runtime_tilecheck_enabled = 1;
+    runtime_tilecheck_start((uintptr_t)(image + entry), (uintptr_t)image);
+}
 /* Damage dealt/taken and green/blue/gold orb multipliers (src/damage_hook.h, src/orb_hook.h):
  * the stubs read the menu's floats directly, so changes apply on the next hit or pickup. */
 static void install_stat_multipliers(Segment *segments, uint64_t count, uint64_t size) {
@@ -1109,6 +1136,7 @@ int main(int argc, char **argv) {
     if (gpu_enabled) install_cheats(segments, ns, size);
     if (gpu_enabled) install_actor_watch(segments, ns, size);
     if (gpu_enabled) install_stat_multipliers(segments, ns, size);
+    install_tile_check(segments, ns, size);
 #ifdef _WIN32
     printf("Guest TCB loads redirected to the TEB TLS slot: %" PRIu64 "\n", patch_tcb_loads(segments, ns));
 #endif

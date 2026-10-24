@@ -58,6 +58,22 @@ Android's TSO settings (all off) crash at once (a jump to float data, 0x3f800000
 strict TSO (vector + memcpy/set TSO on) changes nothing; `GOW3_FEX_AVX=0` crashes on the game's first
 AVX instruction (the game needs AVX).
 
+**FEX translates the tiler correctly (Linux test, 2026-10-24):** the eboot's own Tiler1d (constructor
+0x241a20, `tileSurfaceRegion` 0x241f10) run natively on x86-64 and under our FEX (ios-port-2607 + patches
+0001-0003, built for aarch64 Linux, `qemu-aarch64 -cpu max,sve=off,sme=off`) gives byte-identical output in
+210 tests (BC1/BC3/R8/RG8/RGBA8/RGBA16/RGBA32, 4x4 to 2048x2048, full/aligned/unaligned regions), all equal
+to the reference 1D-thin tiler. Single-threaded, 4 KiB pages: not iOS memory or concurrency. Also seen in
+the 0.1.38 log: `FEX E: Failed to mprotect last page of code buffer` x702 (a 4 KiB guard page cannot be set
+on 16 KiB pages; the JIT's buffers are sized with margin, so probably harmless).
+
+**0.1.39 (diagnostics): tiling check.** `GOW3_TILE_CHECK=1` routes the game's only call of Tiler1d
+(0x243bfb) through `runtime_tilecheck_tile1d` (src/tile_check.h, runtime_tilecheck.c), which per call logs to
+`user/tiles.txt` (problems also to the loader log): a file read still running into the source; the source
+against the game file it was read from (re-read); the same file bytes tiled into a second place; the tiled
+result against the source element by element; overlaps with earlier tilings; and a watcher re-hashes every
+tiled range every 3 s and reports the first change. Summary line every 12 s ("Tile check: N tilings ...").
+Tested end to end on x86-64 with the eboot's real tileSurfaceRegion.
+
 **0.1.38 on the device (Hades save, HDS175/HDS200/HDS300 WADs):** 90,643 records in 109 s (no drops).
 Visibly broken textures (e.g. tex 109: a grey band over the top 22% of a roots texture) have NO traced
 write: no file read, memcpy/memmove/memset, GPU backing write, readback or DMA copy touched them. The guest
