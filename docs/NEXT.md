@@ -52,6 +52,19 @@ A19 has no FEAT_MOPS, so the MOPS path never ran and the textures are still brok
 from gow3_android that remain: TSO emulation on (Android: all TSO options off, `fex-config.json`), and the
 A19's CSSC/RPRES/FlagM2/FRINTTS/RCPC2. Env tests without a build: Android's TSO settings, `GOW3_FEX_AVX=0`.
 
+**FEX versions:** gow3_android pins upstream FEX-2609.1 (9fbdc00); we use willfaust/FEX ios-port-2607 =
+FEX-2607 (1cc4b93, 2026-07-02) + 110 iOS commits, missing 174 upstream FEXCore commits. Tests on 0.1.35:
+Android's TSO settings (all off) crash at once (a jump to float data, 0x3f8000003f1ce73a);
+strict TSO (vector + memcpy/set TSO on) changes nothing; `GOW3_FEX_AVX=0` crashes on the game's first
+AVX instruction (the game needs AVX).
+
+**0.1.37:** `native/patches/fex/0003-upstream-fex-2609-translation-fixes.patch`: 15 upstream FEX correctness
+fixes between 2607 and 2609.1 cherry-picked unchanged (cmpxchg 32-bit zero extension, movd/cvttss2si with
+0x66, 32-bit MulH, PushRoundingMode, FPR spilling for preserve-all ABI calls, BLSMSK/BLSR CF, SHLD by 16,
+F64->I32 precision, x87 fixes, LEA decoding, pdep). Not applied (conflicts): c0c95da (NOP padding),
+96d955e (decoder rollback), dfcbdac (JIT alignment). Test: normal env first; if still broken, the
+features-off env (`GOW3_FEX_OFF=CSSC,RPRES,FlagM,FlagM2,FRINTTS,RCPC2,FCMA`).
+
 **0.1.36:** `GOW3_FEX_OFF=CSSC,RPRES,...` keeps FEX off the named host features (CSSC, RPRES, FlagM, FlagM2,
 FRINTTS, RCPC, RCPC2, LSE, FCMA, CRC, AES, SHA, PMULL); the startup line lists them all.
 
