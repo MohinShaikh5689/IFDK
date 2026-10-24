@@ -273,12 +273,23 @@ int gow3_fault_last_sig, gow3_fault_last_code;
 uintptr_t gow3_fault_last_addr, gow3_fault_last_pc;
 uintptr_t gow3_guest_image_base(void) { return (uintptr_t)image; }
 #endif
+/* The faulting data address. Darwin can leave si_addr 0 (seen for the game's lock adds at guest
+ * offset 0x199239); the exception state's FAR still holds it, and the GPU trackers need it. */
+static void *fault_address(siginfo_t *info, void *context) {
+#ifdef __APPLE__
+    if (!info->si_addr) return (void *)((ucontext_t *)context)->uc_mcontext->__es.__far;
+#else
+    (void)context;
+#endif
+    return info->si_addr;
+}
 static void fault(int sig, siginfo_t *info, void *context) {
+    void *const addr = fault_address(info, context);
 #ifdef __APPLE__
     __atomic_add_fetch(&gow3_fault_count, 1, __ATOMIC_RELAXED);
     __atomic_store_n(&gow3_fault_last_sig, sig, __ATOMIC_RELAXED);
     __atomic_store_n(&gow3_fault_last_code, info->si_code, __ATOMIC_RELAXED);
-    __atomic_store_n(&gow3_fault_last_addr, (uintptr_t)info->si_addr, __ATOMIC_RELAXED);
+    __atomic_store_n(&gow3_fault_last_addr, (uintptr_t)addr, __ATOMIC_RELAXED);
     __atomic_store_n(&gow3_fault_last_pc, guest_cpu_host_pc(context), __ATOMIC_RELAXED);
 #endif
     /* The guest CPU's own faults (FEXCore's JIT on Android/ARM64) are resolved first. */
@@ -305,22 +316,22 @@ static void fault(int sig, siginfo_t *info, void *context) {
         const uintptr_t host_pc = guest_cpu_host_pc(context);
         runtime_wtrace(where == GUEST_CPU_IN_GUEST ? WTRACE_FAULT_GUEST
                        : where == GUEST_CPU_IN_HOST_CALL ? WTRACE_FAULT_HOST_CALL : WTRACE_FAULT_HOST,
-                       (uintptr_t)info->si_addr, 0, where ? regs.rip : host_pc, host_pc);
+                       (uintptr_t)addr, 0, where ? regs.rip : host_pc, host_pc);
     }
     /* GPU page tracking (write-protected guest pages) is resolved first. */
     /* Darwin reports writes to write-protected pages as SIGBUS. */
 #ifndef __APPLE__
-    if (gpu_enabled && (sig == SIGSEGV || sig == SIGBUS) && gow3gpu_handle_fault(context, info->si_addr)) return;
+    if (gpu_enabled && (sig == SIGSEGV || sig == SIGBUS) && gow3gpu_handle_fault(context, addr)) return;
 #else
     /* The GPU trackers protect 16K host pages that several resources share: one of them can claim a
      * write fault without the page becoming writable, and the store then faults forever (the game
      * hangs with its thread "running"). After 64 claimed faults in a row on one page, that page (and
      * the next, for a store that may cross into it) is made writable; the GPU may then miss CPU
      * writes there, which is better than a hang. */
-    if (gpu_enabled && (sig == SIGSEGV || sig == SIGBUS) && gow3gpu_handle_fault(context, info->si_addr)) {
+    if (gpu_enabled && (sig == SIGSEGV || sig == SIGBUS) && gow3gpu_handle_fault(context, addr)) {
         static uintptr_t repeat_page;
         static unsigned repeat_count;
-        const uintptr_t address = (uintptr_t)info->si_addr, page = address & ~(uintptr_t)(page_size - 1);
+        const uintptr_t address = (uintptr_t)addr, page = address & ~(uintptr_t)(page_size - 1);
         if (__atomic_exchange_n(&repeat_page, page, __ATOMIC_RELAXED) != page) {
             __atomic_store_n(&repeat_count, 1, __ATOMIC_RELAXED);
         } else if (__atomic_add_fetch(&repeat_count, 1, __ATOMIC_RELAXED) == 64) {
@@ -358,13 +369,29 @@ static void fault(int sig, siginfo_t *info, void *context) {
                  isa_table->sites[site].offset, isa_kind_name(isa_table->sites[site].kind));
     if (site >= 0 || rip - (uintptr_t)image < 0x10000000)
         snprintf(line, sizeof(line), "Guest fault (signal %d) at guest offset 0x%lx, address %p%s\n",
-                 sig, (unsigned long)(rip - (uintptr_t)image), info->si_addr, emulating);
+                 sig, (unsigned long)(rip - (uintptr_t)image), addr, emulating);
     else if (dladdr((void *)rip, &where) && where.dli_fname)
         snprintf(line, sizeof(line), "Host fault (signal %d) in %s+0x%lx (%s), address %p\n", sig, where.dli_fname,
-                 (unsigned long)(rip - (uintptr_t)where.dli_fbase), where.dli_sname ? where.dli_sname : "?", info->si_addr);
+                 (unsigned long)(rip - (uintptr_t)where.dli_fbase), where.dli_sname ? where.dli_sname : "?", addr);
     else
-        snprintf(line, sizeof(line), "Fault (signal %d) at RIP %p, address %p\n", sig, (void *)rip, info->si_addr);
+        snprintf(line, sizeof(line), "Fault (signal %d) at RIP %p, address %p\n", sig, (void *)rip, addr);
     { ssize_t written_=write(2, line, strlen(line)); (void)written_; }
+#ifdef __APPLE__
+    {
+        /* The host side of the fault: exception syndrome, FAR, si_addr and the JIT code around pc. */
+        const ucontext_t *uc = (const ucontext_t *)context;
+        const uintptr_t pc = guest_cpu_host_pc(context);
+        uint32_t code[8] = {0};
+        vm_size_t got = 0;
+        if (vm_read_overwrite(mach_task_self(), (vm_address_t)(pc - 16), sizeof(code), (vm_address_t)code, &got) != KERN_SUCCESS)
+            got = 0;
+        snprintf(line, sizeof(line), "  host pc %p, esr 0x%x, far 0x%llx, si_addr %p, si_code %d; code at pc-16: "
+                 "%08x %08x %08x %08x [%08x] %08x %08x %08x%s\n", (void *)pc, uc->uc_mcontext->__es.__esr,
+                 (unsigned long long)uc->uc_mcontext->__es.__far, info->si_addr, info->si_code, code[0], code[1],
+                 code[2], code[3], code[4], code[5], code[6], code[7], got ? "" : " (unreadable)");
+        ssize_t written_=write(2, line, strlen(line)); (void)written_;
+    }
+#endif
     if (in_guest == GUEST_CPU_IN_HOST_CALL && regs.rip - (uintptr_t)image < 0x10000000) {
         snprintf(line, sizeof(line), "  called by the game at guest offset 0x%lx\n", (unsigned long)(regs.rip - (uintptr_t)image));
         ssize_t written_=write(2, line, strlen(line)); (void)written_;

@@ -83,6 +83,14 @@ object motion off.
 Crash seen twice (one before the readback fix): guest SIGSEGV at 0x199239 reporting address 0, in a loop that
 atomically sums counters of valid objects (rdi valid) -- looks like a JIT/translation fault, not a game null
 pointer. Not investigated yet.
+**0.1.42 on the device:** the cpu-write waits are gone (texture_cache.cpp:157: 1 wait, 2.8 ms; "byte rule:
+148-163 CPU writes went on without waiting"). Gameplay 29-41 FPS (heavy was 15-21), menus 60; now GPU-bound
+(GPU ticks 75-82 %, 83-109 render passes/frame, up to 141 attachment loads). Dips to ~23 FPS while streaming
+an area: readback image-free 55 waits / 1779 ms (141 MiB), image-refresh 142 waits / 177 ms.
+The 0x199239 crash hit a third time (r15/r12/r13 = 0x70015aa7e0/7e8/7ec, the lock add targets, all valid).
+Guess: Darwin left si_addr 0 for a lock add on a GPU-tracked (write-protected) page, so the tracker never saw
+the write. 0.1.43: the fault handler takes the address from the exception state's FAR when si_addr is 0, and
+the fault report prints host pc, ESR, FAR, si_addr, si_code and the JIT code around pc.
 
 **FIXED (2026-10-24): texture corruption.** 0.1.40 showed every misplaced BC texture under large linear
 R32G32B32A32Uint storage images (4096x80..4096x160, the game's GPU texture moves, as SpartanPort #331 says),
