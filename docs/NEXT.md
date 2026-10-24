@@ -71,6 +71,14 @@ Fix") comes from a too small Video Arena; the phone already runs it at 2.25 GiB 
 0x90000000; direct mapping 2.39 GiB). Raised to 3.25 GiB (0xd0000000; mapping 3.39 GiB confirmed in the log):
 textures broken the same. Not arena pressure.
 
+**FIXED (2026-10-24): texture corruption.** 0.1.40 showed every misplaced BC texture under large linear
+R32G32B32A32Uint storage images (4096x80..4096x160, the game's GPU texture moves, as SpartanPort #331 says),
+with no GPU-modified buffer data there. The PC launcher sets `GOW3_READBACK_LINEAR=1` (run.py) so those
+images are read back to guest memory; iOS never set it. With it (plus `GOW3_DEFERRED_READBACK=1`,
+`GOW3_STALE_READBACK=1`, the gow3.ini defaults) in env.txt the Hades save renders correctly. 0.1.41 sets
+all three by default in Gow3CoreModule.swift. Lesson: diff the PC launcher's environment (run.py,
+scripts/graphics_options.py) against ours whenever iOS behaves differently from PC.
+
 **0.1.40 (diagnostics): misplaced textures.** With `GOW3_TILE_CHECK=1`, `FindImage` reports each new BC texture
 whose address is inside a tiling but where none started (`runtime_tilecheck_classify` == 2): "Misplaced
 texture: ..." with its raw T#, the tiling it lies in, whether the buffer cache holds GPU writes there, and every

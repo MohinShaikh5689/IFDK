@@ -189,6 +189,13 @@ public class Gow3CoreModule: Module {
     // video arena allocation fails and it dereferences the missing pointer. The pool is file-backed,
     // so this costs no app memory until pages are written.
     setenv("GOW3_DMEM_MB", "7104", 0)
+    // GPU readbacks as run.py and gow3.ini set them on the PC. The game moves textures inside its
+    // pool by writing them on the GPU into large linear R32G32B32A32Uint storage images; without
+    // GOW3_READBACK_LINEAR those writes never reach guest memory, and every texture later created
+    // at the new place is uploaded from the stale bytes there (the rainbow/wrong textures, 0.1.40).
+    setenv("GOW3_READBACK_LINEAR", "1", 0)
+    setenv("GOW3_DEFERRED_READBACK", "1", 0)
+    setenv("GOW3_STALE_READBACK", "1", 0)
     // With graphics, no new frame for 60 s dumps the threads to the log, and 180 s ends the app
     // (gow3_start.c), so a hung game does not keep the CPU busy and the phone hot.
     if !cpuOnly { setenv("GOW3_FRAME_WATCHDOG", "60", 0) }
