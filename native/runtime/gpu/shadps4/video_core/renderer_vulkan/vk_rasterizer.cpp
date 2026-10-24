@@ -3069,6 +3069,24 @@ RenderState Rasterizer::BeginRenderingFull(const GraphicsPipeline* pipeline) {
         state.num_layers = 1;
     }
 
+    // gow3 (iOS): a pass without color or depth targets kept the maximum framebuffer size
+    // (32768x32768), and Apple's tile GPU works through every tile of the render area: 4-5 such
+    // passes per frame took 25-27 ms of GPU time in fights (0.1.29 profile). Nothing is drawn
+    // outside the guest's scissor (UpdateViewportScissorState), so the area ends there.
+    if (state.width == instance.GetMaxFramebufferWidth() &&
+        state.height == instance.GetMaxFramebufferHeight()) {
+        const s16 right = std::min({regs.screen_scissor.bottom_right_x,
+                                    s16(regs.window_scissor.bottom_right_x),
+                                    s16(regs.generic_scissor.bottom_right_x)});
+        const s16 bottom = std::min({regs.screen_scissor.bottom_right_y,
+                                     s16(regs.window_scissor.bottom_right_y),
+                                     s16(regs.generic_scissor.bottom_right_y)});
+        if (right > 0 && bottom > 0) {
+            state.width = std::min<u32>(state.width, u32(right));
+            state.height = std::min<u32>(state.height, u32(bottom));
+        }
+    }
+
     if (reduced) {
         // Half-resolution passes keep the scene's factor (proxy / native = scene / 1920).
         const auto size = scene_targets->Size();

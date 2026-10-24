@@ -511,6 +511,21 @@ void Scheduler::SubmitExecution(SubmitInfo& info) {
     auto submit_result = instance.GetGraphicsQueue().submit(submit_info, info.fence);
     ASSERT_MSG(submit_result != vk::Result::eErrorDeviceLost, "Device lost during submit");
 
+    // gow3: GOW3_SUBMIT_WAIT=1 waits for every submission to finish on the GPU (very slow). A
+    // diagnostic for the iOS texture corruption: if it goes away, something (descriptor sets,
+    // staging or stream buffer space) is reused before the GPU is done with it.
+    static const bool submit_wait = [] {
+        const char* env = std::getenv("GOW3_SUBMIT_WAIT");
+        const bool on = env && *env == '1';
+        if (on) {
+            std::printf("GPU: GOW3_SUBMIT_WAIT=1, every submission waits for the GPU\n");
+        }
+        return on;
+    }();
+    if (submit_wait) {
+        work_semaphore.Wait(signal_value);
+    }
+
     work_semaphore.Refresh();
     AllocateWorkerCommandBuffers();
 

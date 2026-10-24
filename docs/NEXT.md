@@ -10,6 +10,18 @@ textures (good: 4). `GOW3_GPU_PROFILE=2` crashed in Apple's driver on every star
 failed to build in the warm-up (`Cannot convert attribute from MTLAttributeFormatFloat4 to int4`); the
 pipeline cache was deleted on the phone (copy kept on the PC).
 
+**0.1.29 on the device:** with the renderer passes on descriptor sets the textures stayed right for a long
+time and then broke mid-fight (some places were bad from the start); with the pipelines on sets too it broke
+sooner, with wrong textures on objects. A capture of a broken frame: every BC texture is tile mode 13 /
+array mode 2 (1D thin, micro tiled), as in good frames, so the detiler's math is not it. Suspect: something
+reused before the GPU is done with it (descriptor sets, staging, stream buffer). The fixed profiler works:
+in fights 25-27 ms of GPU time per frame went to 4-5 passes with no color or depth target (render area
+32768x32768, vs ccdebd802401e5ac, no pixel shader).
+
+**0.1.30:** such passes take the guest scissor as their render area instead of the maximum framebuffer
+size (Apple's tile GPU works through the whole area). `GOW3_SUBMIT_WAIT=1` makes every submission wait for
+the GPU (very slow): if the corruption goes away, it is reuse before the GPU finished.
+
 **0.1.29:** the renderer's own passes pushed descriptors even with 0.1.27: the detiler (every tiled texture
 upload), blits, GPU fault processing and HLE shaders. With robustBufferAccess, MoltenVK's stale pushed buffer
 size clips the detiler part way through a large texture, which fits "large textures broken". They now bind
