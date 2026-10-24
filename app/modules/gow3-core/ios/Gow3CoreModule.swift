@@ -196,6 +196,11 @@ public class Gow3CoreModule: Module {
     setenv("GOW3_READBACK_LINEAR", "1", 0)
     setenv("GOW3_DEFERRED_READBACK", "1", 0)
     setenv("GOW3_STALE_READBACK", "1", 0)
+    // No upscaler: FSR 3/4 are stubbed out on iOS, and their object motion (vertex stores into a
+    // motion buffer) drew 32768x32768 attachment-less passes that took ~19 ms of a 35 ms GPU frame
+    // in Hades (0.1.38 profile). Off, heavy scenes went from 10-22 to 17-21 FPS, light ones 30 -> 41.
+    setenv("GOW3_UPSCALER", "off", 0)
+    setenv("GOW3_OBJECT_MOTION", "0", 0)
     // With graphics, no new frame for 60 s dumps the threads to the log, and 180 s ends the app
     // (gow3_start.c), so a hung game does not keep the CPU busy and the phone hot.
     if !cpuOnly { setenv("GOW3_FRAME_WATCHDOG", "60", 0) }

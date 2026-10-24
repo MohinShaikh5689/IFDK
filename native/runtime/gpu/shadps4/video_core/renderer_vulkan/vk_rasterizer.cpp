@@ -3266,6 +3266,13 @@ bool Rasterizer::OnWriteFault(VAddr addr, bool assume_locks) {
     // stays read-only, and the store faults again (hundreds of times per write, stale GPU copies).
     // The whole host page is invalidated; a page that is only partly GPU-mapped keeps the 8 bytes.
     const VAddr page = addr & ~VAddr(VideoCore::TRACKER_BYTES_PER_PAGE - 1);
+    // Pending readbacks first see the written bytes: in stale mode one elsewhere on the page then
+    // stops guarding it and lands when the GPU is done, instead of the store waiting for the
+    // whole GPU frame. Seen as the page, every store next to the game's 8x8 and 64x32 GPU images
+    // waited (Hades: one ~47 ms wait per frame, 15-20 FPS; GOW3_PERF_DIAG "cpu-write" waits).
+    if (IsMapped(addr, 8)) {
+        texture_cache.ResolveReadbacks(addr, 8, assume_locks, VideoCore::ReadbackSource::CpuWrite);
+    }
     if (!InvalidateMemory(page, VideoCore::TRACKER_BYTES_PER_PAGE, assume_locks) &&
         !InvalidateMemory(addr, 8, assume_locks)) {
         return false;

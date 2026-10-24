@@ -71,6 +71,19 @@ Fix") comes from a too small Video Arena; the phone already runs it at 2.25 GiB 
 0x90000000; direct mapping 2.39 GiB). Raised to 3.25 GiB (0xd0000000; mapping 3.39 GiB confirmed in the log):
 textures broken the same. Not arena pressure.
 
+**FPS (2026-10-24, Hades save, 600p).** No-build tests on 0.1.40: gow3.ini fps_limit 30 -> 60, `GOW3_UPSCALER=off`,
+`GOW3_OBJECT_MOTION=0`: menus 30 -> 60, light gameplay 30 -> 41-42, heavy 10-22 -> 17-21. The 32768x32768
+attachment-less passes (~19 ms of 35 ms GPU) were object motion's vertex stores and are gone. `GOW3_FRAMES_AHEAD=2`
+changed nothing. `GOW3_PERF_DIAG=1` then showed the heavy-scene limit: "Readback source cpu-write: 82 waits,
+3828 ms, max 57.8 ms; byte rule: 0 CPU writes went on without waiting" (texture_cache.cpp:157). The game writes
+each frame next to its 8x8/64x32 GPU images (read back), and on iOS OnWriteFault resolves readbacks for the whole
+16K page, so the stale-mode byte rule never applied and each store waited a whole GPU frame (~47 ms). 0.1.42:
+OnWriteFault resolves readbacks for the 8 written bytes first; iOS defaults fps_limit 60, upscaler off,
+object motion off.
+Crash seen twice (one before the readback fix): guest SIGSEGV at 0x199239 reporting address 0, in a loop that
+atomically sums counters of valid objects (rdi valid) -- looks like a JIT/translation fault, not a game null
+pointer. Not investigated yet.
+
 **FIXED (2026-10-24): texture corruption.** 0.1.40 showed every misplaced BC texture under large linear
 R32G32B32A32Uint storage images (4096x80..4096x160, the game's GPU texture moves, as SpartanPort #331 says),
 with no GPU-modified buffer data there. The PC launcher sets `GOW3_READBACK_LINEAR=1` (run.py) so those
