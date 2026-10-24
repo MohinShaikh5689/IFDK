@@ -47,7 +47,9 @@ FEXCore::HostFeatures gow3_fex_host_features() {
     f.SupportsCSSC = Has("hw.optional.arm.FEAT_CSSC");
     f.SupportsECV = Has("hw.optional.arm.FEAT_ECV");
     f.SupportsWFXT = Has("hw.optional.arm.FEAT_WFxT");
-    f.SupportsMOPS = Has("hw.optional.arm.FEAT_MOPS");
+    // FEX copies rep movs/stos with MOPS; GOW3_FEX_MOPS=0 uses its plain loops (Android's
+    // Snapdragons have no MOPS, so that path is the one the game was tested on).
+    f.SupportsMOPS = !EnvIs("GOW3_FEX_MOPS", '0') && Has("hw.optional.arm.FEAT_MOPS");
     f.SupportsAFP = EnvIs("GOW3_FEX_AFP", '1') && Has("hw.optional.arm.FEAT_AFP");
     f.SupportsAVX = !EnvIs("GOW3_FEX_AVX", '0');
     f.SupportsAES256 = f.SupportsAVX && f.SupportsAES;

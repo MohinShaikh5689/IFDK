@@ -42,6 +42,19 @@ the first 8x8 texels, and 16 KiB pages put many more textures on that path than 
 changed; 542 GPU-written textures (335 MB) were skipped. The re-upload goes through the same staging copy and
 detiler, so a detiler that is wrong for some layouts every time is not ruled out.
 
+**0.1.34 on the device: the corruption is in guest memory.** A dump of the 175 textures sampled in a broken scene
+(`tools`: detile + BC decode on the PC) shows all 144 BC textures byte-identical between the Vulkan image and
+guest memory, and many of them visibly broken in memory itself: regular stripes, bands of other data, rainbow
+noise. Upload, detiling, binding and sampling are correct; the game's own CPU code wrote bad texture data.
+
+**0.1.35 (fix candidate):** FEX's `rep movs` with FEAT_MOPS (MemoryOps.cpp `MemCpy`) checks for overlap with
+`dst - src < Length`, where Length counts elements, not bytes, so a `rep movs{w,d,q}` move whose gap is between
+the count and the byte length runs `cpyf` (forward-only) over overlapping memory. The A19 has FEAT_MOPS; the
+Snapdragons gow3_android runs on do not, so only iOS takes this path. A texture pool compacting itself makes
+exactly such moves. `native/patches/fex/0002-mops-memcpy-overlap-check-in-bytes.patch` compares against the
+length in bytes; `GOW3_FEX_MOPS=0` turns MOPS off altogether (A/B). Local fix only: FEX does not accept
+AI-written contributions, so a report upstream has to come from a person.
+
 **0.1.34 (diagnostics):** creating `Documents/gow3/dump.txt` writes every texture sampled in the last two GC
 ticks to `user/dumps/dump_N`: `NNN_gpu.bin` (mip 0, layer 0 of the Vulkan image), `NNN_mem.bin` (its tiled
 guest memory) and `manifest.txt` (format, size, pitch, tile/array mode, flags, usage). Detiled and decoded on

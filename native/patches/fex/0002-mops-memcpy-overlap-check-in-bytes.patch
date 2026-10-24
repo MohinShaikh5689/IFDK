@@ -1,0 +1,16 @@
+diff --git a/FEXCore/Source/Interface/Core/JIT/MemoryOps.cpp b/FEXCore/Source/Interface/Core/JIT/MemoryOps.cpp
+index f31cecc..942930d 100644
+--- a/FEXCore/Source/Interface/Core/JIT/MemoryOps.cpp
++++ b/FEXCore/Source/Interface/Core/JIT/MemoryOps.cpp
+@@ -2591,7 +2591,10 @@ DEF_OP(MemCpy) {
+         ARMEmitter::ForwardLabel OverlapCase;
+         mrs(TMP4, ARMEmitter::SystemRegister::NZCV);
+         sub(ARMEmitter::Size::i64Bit, TMP1, TMP2, TMP3);
+-        cmp(ARMEmitter::Size::i64Bit, TMP1, Length.X());
++        // The distance is in bytes and Length counts elements: compare against the length in
++        // bytes, or a rep movs{w,d,q} whose gap is between the two takes the forward-only copy
++        // over overlapping memory.
++        cmp(ARMEmitter::Size::i64Bit, TMP1, Length.X(), ARMEmitter::ShiftType::LSL, FEXCore::ilog2(Size));
+         mov(TMP1, Length.X());
+         (void)bc(ARMEmitter::Condition::CC_LT, &OverlapCase);
+ 
