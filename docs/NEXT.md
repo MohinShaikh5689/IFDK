@@ -66,6 +66,11 @@ to the reference 1D-thin tiler. Single-threaded, 4 KiB pages: not iOS memory or 
 the 0.1.38 log: `FEX E: Failed to mprotect last page of code buffer` x702 (a 4 KiB guard page cannot be set
 on 16 KiB pages; the JIT's buffers are sized with margin, so probably harmless).
 
+**Video Arena test (0.1.38, no build):** the game's own texture corruption (the PC port's "Texture Corruption
+Fix") comes from a too small Video Arena; the phone already runs it at 2.25 GiB (600p patch, 0x3cd918 =
+0x90000000; direct mapping 2.39 GiB). Raised to 3.25 GiB (0xd0000000; mapping 3.39 GiB confirmed in the log):
+textures broken the same. Not arena pressure.
+
 **0.1.39 (diagnostics): tiling check.** `GOW3_TILE_CHECK=1` routes the game's only call of Tiler1d
 (0x243bfb) through `runtime_tilecheck_tile1d` (src/tile_check.h, runtime_tilecheck.c), which per call logs to
 `user/tiles.txt` (problems also to the loader log): a file read still running into the source; the source
