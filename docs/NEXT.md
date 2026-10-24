@@ -18,6 +18,18 @@ reused before the GPU is done with it (descriptor sets, staging, stream buffer).
 in fights 25-27 ms of GPU time per frame went to 4-5 passes with no color or depth target (render area
 32768x32768, vs ccdebd802401e5ac, no pixel shader).
 
+**0.1.30 on the device:** locked 30 FPS up to ~1000 draws/frame with GPU ticks near 0 % (was 10-12 FPS);
+the heaviest scenes (2000+ draws) run ~16 FPS. Textures still break over time. `GOW3_SUBMIT_WAIT=1` did not
+help (broke fast), so reuse before the GPU finished is ruled out.
+
+**0.1.31:** file reads go through a host buffer on iOS (runtime_file.c `bounce_read`). The runtime touched each
+destination page so the fault handler unprotected it, then read() straight into guest memory; the GPU thread
+can protect a page again before the kernel's copy reaches it (level files are ~200 MB), and XNU's read() then
+fails with EFAULT after partial data: half-loaded textures. Android avoids it with userfaultfd. Now the kernel
+fills a host buffer and a user-mode memcpy writes guest memory, so every write goes through the handler.
+`GOW3_DIRECT_READ=1` restores the direct read and logs each EFAULT (A/B: if those lines appear when it breaks,
+this was it).
+
 **0.1.30:** such passes take the guest scissor as their render area instead of the maximum framebuffer
 size (Apple's tile GPU works through the whole area). `GOW3_SUBMIT_WAIT=1` makes every submission wait for
 the GPU (very slow): if the corruption goes away, it is reuse before the GPU finished.

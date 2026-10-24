@@ -294,11 +294,61 @@ static void touch_for_write(void *buffer,uint64_t size) {
         *b=*b;
     }
 }
+#ifdef __APPLE__
+/* gow3 (iOS): GPU tracking protects 16K pages with mprotect, and the GPU thread can protect a
+ * touched page again before the kernel's copy reaches it (a level file of ~200 MB takes a while).
+ * XNU's read() then fails with EFAULT even after part of the data arrived, and the game is left
+ * with half-loaded textures (on Linux userfaultfd makes the kernel's copy wait instead). The
+ * kernel reads into a host buffer and a user-mode copy moves the data, so every write to a
+ * protected page goes through the fault handler, which invalidates what the GPU cached there.
+ * GOW3_DIRECT_READ=1: the direct read, which logs each EFAULT. */
+static int direct_read(void) {
+    static int value=-1;
+    if (value<0) { const char *e=getenv("GOW3_DIRECT_READ"); value=e && *e=='1'; }
+    return value;
+}
+static void log_efault(int fd,uint64_t size) {
+    static unsigned logged;
+    if (__atomic_add_fetch(&logged,1,__ATOMIC_RELAXED)<=32)
+        printf("File read: EFAULT reading %llu bytes (fd %d) into guest memory\n",(unsigned long long)size,fd);
+}
+/* offset < 0: read() at the file position, else pread(). */
+static ssize_t bounce_read(int h,void *buffer,uint64_t size,int64_t offset) {
+    enum { CHUNK=1<<20 };
+    static __thread unsigned char *chunk;
+    if (!chunk && !(chunk=malloc(CHUNK))) { errno=ENOMEM; return -1; }
+    uint64_t done=0;
+    while (done<size) {
+        const size_t want=size-done<CHUNK ? (size_t)(size-done) : CHUNK;
+        const ssize_t n=offset<0 ? read(h,chunk,want) : pread(h,chunk,want,offset+(int64_t)done);
+        if (n<0) {
+            if (errno==EINTR) continue;
+            return done ? (ssize_t)done : -1;
+        }
+        if (n==0) break;
+        memcpy((unsigned char *)buffer+done,chunk,(size_t)n);
+        done+=(uint64_t)n;
+        if ((size_t)n<want) break;
+    }
+    return (ssize_t)done;
+}
+#endif
 static int64_t do_read(int fd,void *buffer,uint64_t size) {
     int h=host_fd(fd);
     if (h<0) return -EBADF;
+#ifdef __APPLE__
+    if (!direct_read()) {
+        ssize_t n=bounce_read(h,buffer,size,-1);
+        if (n<0) return -errno;
+        __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
+        return n;
+    }
+#endif
     touch_for_write(buffer,size);
     ssize_t n=host_read(h,buffer,size);
+#ifdef __APPLE__
+    if (n<0 && errno==EFAULT) log_efault(fd,size);
+#endif
     if (n<0) { if (audio_trace()) printf("Audio trace: read(fd %d, %llu) failed, errno %d\n",fd,(unsigned long long)size,errno); return -errno; }
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
     return n;
@@ -306,8 +356,19 @@ static int64_t do_read(int fd,void *buffer,uint64_t size) {
 static int64_t do_pread(int fd,void *buffer,uint64_t size,int64_t offset) {
     int h=host_fd(fd);
     if (h<0) return -EBADF;
+#ifdef __APPLE__
+    if (!direct_read() && offset>=0) {
+        ssize_t n=bounce_read(h,buffer,size,offset);
+        if (n<0) return -errno;
+        __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
+        return n;
+    }
+#endif
     touch_for_write(buffer,size);
     ssize_t n=pread(h,buffer,size,offset);
+#ifdef __APPLE__
+    if (n<0 && errno==EFAULT) log_efault(fd,size);
+#endif
     if (n<0) { if (audio_trace()) printf("Audio trace: pread(fd %d, %llu @%lld) failed, errno %d\n",fd,(unsigned long long)size,(long long)offset,errno); return -errno; }
     __atomic_add_fetch(&reads,1,__ATOMIC_RELAXED); __atomic_add_fetch(&bytes_read,(uint64_t)n,__ATOMIC_RELAXED);
     return n;
